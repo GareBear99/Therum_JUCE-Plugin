@@ -1,0 +1,12 @@
+Expected final mascot sheet
+- idle_01
+- idle_02
+- jab_01
+- jab_02
+- uppercut_01
+- uppercut_02
+- power_01
+- guard_01
+
+Use original art only.
+Keep mascot secondary to primary synth controls.

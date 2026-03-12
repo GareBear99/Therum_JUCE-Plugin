@@ -1,0 +1,23 @@
+{
+  "Therum-Core-Engine": [
+    "CMakeLists.txt",
+    "README.md",
+    "README_CURRENT_STATUS.md",
+    "FINAL_HANDOFF.md",
+    "MAX_HANDOFF_NOTE.md",
+    "Source/Core/",
+    "Source/DSP/",
+    "Source/Preset/",
+    "Source/Mascot/"
+  ],
+  "Therum-UI-Editor": [
+    "Source/UI/",
+    "Mockups/"
+  ],
+  "Therum-Resources-Presets": [
+    "Resources/"
+  ],
+  "Therum-Docs": [
+    "Docs/"
+  ]
+}

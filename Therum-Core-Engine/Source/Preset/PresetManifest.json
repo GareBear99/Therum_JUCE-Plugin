@@ -1,0 +1,25 @@
+{
+  "banks": [
+    {
+      "name": "Init",
+      "count_target": 8
+    },
+    {
+      "name": "Bass",
+      "count_target": 8
+    },
+    {
+      "name": "Lead",
+      "count_target": 8
+    },
+    {
+      "name": "Pad",
+      "count_target": 8
+    },
+    {
+      "name": "FX",
+      "count_target": 4
+    }
+  ],
+  "notes": "Placeholder preset manifest for future real content."
+}
