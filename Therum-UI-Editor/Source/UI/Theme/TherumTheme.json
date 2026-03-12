@@ -1,0 +1,13 @@
+{
+  "background": "#050816",
+  "surface": "#141a30",
+  "surface_alt": "#0d1224",
+  "neon_cyan": "#00f6ff",
+  "neon_magenta": "#ff4fd8",
+  "neon_violet": "#8b5cf6",
+  "accent_amber": "#ff8c46",
+  "text_primary": "#eef4ff",
+  "text_muted": "#a8b8d8",
+  "corner_radius_large": 24,
+  "corner_radius_small": 14
+}
