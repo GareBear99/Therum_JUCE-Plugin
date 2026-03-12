@@ -1,0 +1,9 @@
+Reactive mascot source notes:
+- intended role: branding / feedback / transient reaction
+- must remain secondary to the main synth UI
+- reserved states:
+  idle
+  jab
+  uppercut
+  power
+  guard

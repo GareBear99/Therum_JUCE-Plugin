@@ -1,0 +1,30 @@
+{
+  "product": "THERUM",
+  "package": "Therum_Flagship_Package_v11",
+  "status": "advanced_scaffold_not_final_release",
+  "contains": [
+    "processor/editor shell",
+    "startup splash flow",
+    "panel hierarchy",
+    "basic APVTS attachments",
+    "wavetable bank scaffold",
+    "dual-oscillator voice scaffold",
+    "ADSR scaffold",
+    "simple LPF scaffold",
+    "FX rack scaffold",
+    "preset IO scaffold",
+    "diagnostics scaffold",
+    "mascot source sprite"
+  ],
+  "missing_for_true_release": [
+    "real wavetable editor/import/morph system",
+    "sample engine",
+    "granular engine",
+    "spectral engine",
+    "true dual-filter implementation",
+    "full modulation routing execution",
+    "full preset browser UX",
+    "compile-verified final project",
+    "runtime mascot sprite animation"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Neon Pad Stub",
+  "category": "Pad",
+  "description": "Early placeholder patch category example for Therum.",
+  "macros": {
+    "Macro 1": "Open filter",
+    "Macro 2": "Reserved"
+  }
+}

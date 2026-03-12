@@ -1,0 +1,14 @@
+{
+  "name": "Init Patch",
+  "category": "Init",
+  "description": "Basic starting patch for THERUM scaffold builds.",
+  "macros": {
+    "Macro 1": "Filter open",
+    "Macro 2": "Reserved"
+  },
+  "engine_state": {
+    "oscA_wtPos": 0.25,
+    "oscA_level": 0.8,
+    "filter1_cutoff": 18000.0
+  }
+}

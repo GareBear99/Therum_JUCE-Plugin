@@ -1,0 +1,40 @@
+{
+  "global": [
+    "masterGain",
+    "qualityMode"
+  ],
+  "oscA": [
+    "oscA_wtPos",
+    "oscA_level",
+    "oscA_detune"
+  ],
+  "oscB": [
+    "oscB_wtPos",
+    "oscB_level",
+    "oscB_detune"
+  ],
+  "sub_noise": [
+    "sub_level",
+    "noise_level"
+  ],
+  "filter1": [
+    "filter1_cutoff",
+    "filter1_reso",
+    "filter1_drive"
+  ],
+  "env1": [
+    "env1_attack",
+    "env1_decay",
+    "env1_sustain",
+    "env1_release"
+  ],
+  "macros": [
+    "macro1",
+    "macro2"
+  ],
+  "fx": [
+    "fx_delayMix",
+    "fx_reverbMix",
+    "fx_distMix"
+  ]
+}
