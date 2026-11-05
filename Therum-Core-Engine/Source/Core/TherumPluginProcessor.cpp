@@ -44,11 +44,13 @@ void TherumPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const float delayMix = apvts.getRawParameterValue(TherumParams::fx_delayMix)->load();
     const float reverbMix = apvts.getRawParameterValue(TherumParams::fx_reverbMix)->load();
     const float distMix = apvts.getRawParameterValue(TherumParams::fx_distMix)->load();
-    const float masterLin = juce::Decibels::decibelsToGain(masterGainDb);
 
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
-        const float s = voiceManager.renderMixed(filterCutoff, macro1, delayMix, reverbMix, distMix) * masterLin;
+        // The core owns the master gain (it converts dB to linear, smooths
+        // it, applies it, and limits the result), so the processor just
+        // passes the raw parameter values through.
+        const float s = voiceManager.renderMixed(filterCutoff, macro1, delayMix, reverbMix, distMix, masterGainDb);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.setSample(ch, sample, s);
     }

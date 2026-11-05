@@ -24,20 +24,37 @@ void TherumVoice::start(int note, float vel)
     velocity = vel;
     oscA.setFrequency(midiToHz(note));
     oscB.setFrequency(midiToHz(note) * 1.005f);
+    // Fresh start: reset the oscillator phases and the filter state so a
+    // retrigger begins at the same point as a first trigger, with no click
+    // from a stale phase or leftover filter memory.
+    oscA.resetPhase();
+    oscB.resetPhase();
+    lpf.reset();
     ampEnv.noteOn();
     active = true;
 }
 
 void TherumVoice::stop()
 {
+    // Release only. Do NOT deactivate here: the voice keeps rendering its
+    // release tail and deactivates itself in render() once the envelope has
+    // run to zero. Deactivating here is what made the release never sound.
     ampEnv.noteOff();
-    active = false;
-    midiNote = -1;
 }
 
 float TherumVoice::render(float filterCutoff, float macroAmount, float delayMix, float reverbMix, float distMix)
 {
     if (!active) return 0.0f;
+
+    // The release tail is done: the envelope has run to zero, so this voice
+    // is finished. Deactivate it now (and free the note) instead of
+    // rendering silence forever.
+    if (ampEnv.isFinished())
+    {
+        active = false;
+        midiNote = -1;
+        return 0.0f;
+    }
 
     const float modulatedCutoff = filterCutoff * (0.5f + macroAmount * 0.5f);
     lpf.setCutoff(modulatedCutoff);

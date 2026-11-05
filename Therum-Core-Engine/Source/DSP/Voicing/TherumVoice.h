@@ -15,6 +15,8 @@ public:
 
     bool isActive() const { return active; }
     int getMidiNote() const { return midiNote; }
+    // Release time in seconds (the envelope's release), for tail reporting.
+    float getReleaseSeconds() const { return ampEnv.getReleaseSeconds(); }
 
 private:
     WavetableOscillator oscA;

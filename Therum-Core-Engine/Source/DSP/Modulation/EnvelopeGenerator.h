@@ -8,6 +8,12 @@ public:
     void noteOff();
     float process();
 
+    // True once the envelope has run to zero after release (stage idle).
+    // A voice uses this to know its release tail is done and it can stop.
+    bool isFinished() const { return stage == 0; }
+    // Release time in seconds, for the host's tail-length reporting.
+    float getReleaseSeconds() const { return releaseMs * 0.001f; }
+
 private:
     double sr = 44100.0;
     float attackMs = 10.0f;
