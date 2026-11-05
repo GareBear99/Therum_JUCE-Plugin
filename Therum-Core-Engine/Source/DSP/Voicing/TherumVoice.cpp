@@ -15,7 +15,10 @@ void TherumVoice::prepare(double sampleRate, const WavetableBank* sharedBank)
 
     ampEnv.prepare(sampleRate);
     ampEnv.setADSR(10.0f, 120.0f, 0.75f, 220.0f);
-    lpf.prepare(sampleRate);
+    filter.prepare(sampleRate);
+    filter.setType(SvfFilter::Type::LowPass);
+    filter.setQ(0.7071f); // Butterworth: -3 dB at the cutoff, no peak
+    filter.setDrive(0.0f); // no drive in the voice path (yet)
 }
 
 void TherumVoice::start(int note, float vel)
@@ -29,7 +32,7 @@ void TherumVoice::start(int note, float vel)
     // from a stale phase or leftover filter memory.
     oscA.resetPhase();
     oscB.resetPhase();
-    lpf.reset();
+    filter.reset();
     ampEnv.noteOn();
     active = true;
 }
@@ -57,10 +60,10 @@ float TherumVoice::render(float filterCutoff, float macroAmount, float delayMix,
     }
 
     const float modulatedCutoff = filterCutoff * (0.5f + macroAmount * 0.5f);
-    lpf.setCutoff(modulatedCutoff);
+    filter.setCutoff(modulatedCutoff);
 
     const float raw = (oscA.process() * 0.62f) + (oscB.process() * 0.38f);
-    const float filtered = lpf.process(raw);
+    const float filtered = filter.process(raw);
 
     fx.setDelayMix(delayMix);
     fx.setReverbMix(reverbMix);

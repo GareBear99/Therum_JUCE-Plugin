@@ -10,7 +10,7 @@
 //   g++ -std=c++17 -O2 -Wall -Wextra -o test_core test_core.cpp
 //       ../Source/DSP/Oscillators/WavetableOscillator.cpp
 //       ../Source/DSP/Oscillators/WavetableBank.cpp
-//       ../Source/DSP/Filters/SimpleLPF.cpp
+//       ../Source/DSP/Filters/SvfFilter.cpp
 //       ../Source/DSP/Modulation/EnvelopeGenerator.cpp
 //       ../Source/DSP/Voicing/TherumVoice.cpp
 //       ../Source/DSP/Voicing/VoiceManager.cpp
@@ -31,6 +31,9 @@
 #include "../Source/DSP/Utils/Fft.h"
 #include "../Source/DSP/Utils/WavImport.h"
 #include "../Source/DSP/Oscillators/WavetableBank.h"
+#include "../Source/DSP/Filters/SvfFilter.h"
+#include "../Source/DSP/Filters/DualFilter.h"
+#include "RbjBiquad.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -987,6 +990,324 @@ static void testWavImport()
     }
 }
 
+// ---------------------------------------------------------------------------
+// Simper SVF (paper section 4.5, rank 3).
+//
+// The measurement helper drives a filter with a sine at testFreq and
+// returns the steady-state gain in dB (RMS ratio, second half of a
+// 256-cycle run — the FreeEQ8 rig's method). Every number asserted
+// below was first measured with a scratch probe and then encoded
+// here; nothing is asserted from the paper alone.
+// ---------------------------------------------------------------------------
+
+static double measureSineGainSvf(SvfFilter& f, double testFreq, double sr)
+{
+    const double w = 2.0 * 3.14159265358979323846 * testFreq;
+    int spc = (int)(sr / testFreq);
+    if (spc < 4) spc = 4;
+    const int total = spc * 256, warmup = total / 2;
+    double si = 0.0, so = 0.0;
+    for (int i = 0; i < total; ++i)
+    {
+        const double x = std::sin(w * i / sr);
+        const double y = f.process((float)x);
+        if (i >= warmup) { si += x * x; so += y * y; }
+    }
+    return si > 1e-30 ? 10.0 * std::log10(so / si) : -999.0;
+}
+
+static double measureSineGainRbj(RbjBiquad& b, double testFreq, double sr)
+{
+    const double w = 2.0 * 3.14159265358979323846 * testFreq;
+    int spc = (int)(sr / testFreq);
+    if (spc < 4) spc = 4;
+    const int total = spc * 256, warmup = total / 2;
+    double si = 0.0, so = 0.0;
+    for (int i = 0; i < total; ++i)
+    {
+        const double x = std::sin(w * i / sr);
+        const double y = b.process(x);
+        if (i >= warmup) { si += x * x; so += y * y; }
+    }
+    return si > 1e-30 ? 10.0 * std::log10(so / si) : -999.0;
+}
+
+// Generic version: any filter with float process(float).
+template <typename Filter>
+static double measureSineGain(Filter& f, double testFreq, double sr)
+{
+    const double w = 2.0 * 3.14159265358979323846 * testFreq;
+    int spc = (int)(sr / testFreq);
+    if (spc < 4) spc = 4;
+    const int total = spc * 256, warmup = total / 2;
+    double si = 0.0, so = 0.0;
+    for (int i = 0; i < total; ++i)
+    {
+        const double x = std::sin(w * i / sr);
+        const double y = f.process((float)x);
+        if (i >= warmup) { si += x * x; so += y * y; }
+    }
+    return si > 1e-30 ? 10.0 * std::log10(so / si) : -999.0;
+}
+
+static void testSvfResponse()
+{
+    std::printf("testSvfResponse...\n");
+    const double sr = 44100.0;
+    SvfFilter f;
+    f.prepare(sr);
+    f.setQ(0.7071f);
+    f.setCutoff(1000.0f);
+
+    // Lowpass, Q = 1/sqrt(2) (Butterworth): -3.01 dB at fc, ~0 dB a
+    // decade below, -43.3 dB a decade above (12 dB/oct, two poles).
+    f.setType(SvfFilter::Type::LowPass);
+    f.reset();
+    CHECK_NEAR(measureSineGainSvf(f, 100.0, sr), 0.0, 0.05);
+    CHECK_NEAR(measureSineGainSvf(f, 1000.0, sr), -3.019, 0.05);
+    CHECK_NEAR(measureSineGainSvf(f, 10000.0, sr), -43.316, 0.5);
+
+    // Highpass mirrors it.
+    f.setType(SvfFilter::Type::HighPass);
+    f.reset();
+    CHECK_NEAR(measureSineGainSvf(f, 100.0, sr), -40.030, 0.5);
+    CHECK_NEAR(measureSineGainSvf(f, 1000.0, sr), -3.019, 0.05);
+    CHECK_NEAR(measureSineGainSvf(f, 10000.0, sr), 0.0, 0.05);
+
+    // Notch: a null at fc (measured -154 dB), ~0 dB a decade away.
+    f.setType(SvfFilter::Type::Notch);
+    f.reset();
+    CHECK(measureSineGainSvf(f, 1000.0, sr) < -100.0);
+    CHECK_NEAR(measureSineGainSvf(f, 100.0, sr), -0.087, 0.1);
+    CHECK_NEAR(measureSineGainSvf(f, 10000.0, sr), -0.059, 0.1);
+
+    // Bandpass peak gain is Q (constant-skirt-gain form), measured
+    // at fc for four Q values: 20*log10(Q) to within 0.01 dB.
+    f.setType(SvfFilter::Type::BandPass);
+    const double qs[] = { 0.7071, 1.0, 2.0, 10.0 };
+    for (double q : qs)
+    {
+        f.setQ((float)q);
+        f.reset();
+        CHECK_NEAR(measureSineGainSvf(f, 1000.0, sr), 20.0 * std::log10(q), 0.05);
+    }
+
+    // Resonant lowpass peaks at fc as Q rises (Q=1: ~0 dB, Q=2:
+    // +6.01 dB, Q=10: +19.99 dB) — the resonance is real, not a
+    // numerical artefact.
+    f.setType(SvfFilter::Type::LowPass);
+    const double lpQs[] = { 1.0, 2.0, 10.0 };
+    const double lpPeaks[] = { -0.008, 6.012, 19.992 };
+    for (int i = 0; i < 3; ++i)
+    {
+        f.setQ((float)lpQs[i]);
+        f.reset();
+        CHECK_NEAR(measureSineGainSvf(f, 1000.0, sr), lpPeaks[i], 0.1);
+    }
+}
+
+static void testSvfMatchesRbj()
+{
+    std::printf("testSvfMatchesRbj...\n");
+    // The FreeEQ8 result, reproduced: the Simper SVF and the RBJ
+    // biquad produce identical steady-state magnitude responses.
+    // Cramping is a BLT property, not a topology property. If this
+    // check ever fails, the SVF implementation is wrong.
+    const double sr = 44100.0;
+    const double fcs[] = { 100.0, 1000.0, 8000.0, 16000.0 };
+    const double qs[] = { 0.5, 0.7071, 1.0, 5.0 };
+    const double testFreqs[] = { 20.0, 100.0, 500.0, 1000.0, 4000.0,
+                                 8000.0, 12000.0, 16000.0, 20000.0 };
+    const SvfFilter::Type types[] = { SvfFilter::Type::LowPass,
+                                      SvfFilter::Type::HighPass,
+                                      SvfFilter::Type::BandPass,
+                                      SvfFilter::Type::Notch };
+    const RbjBiquad::Type rbjTypes[] = { RbjBiquad::Type::LowPass,
+                                         RbjBiquad::Type::HighPass,
+                                         RbjBiquad::Type::BandPass,
+                                         RbjBiquad::Type::Notch };
+    for (int ti = 0; ti < 4; ++ti)
+    {
+        for (double fc : fcs)
+        {
+            for (double q : qs)
+            {
+                SvfFilter svf;
+                svf.prepare(sr);
+                svf.setType(types[ti]);
+                svf.setCutoff((float)fc);
+                svf.setQ((float)q);
+                RbjBiquad rbj;
+                rbj.set(rbjTypes[ti], sr, fc, q);
+                for (double tf : testFreqs)
+                {
+                    if (tf >= sr * 0.5) continue;
+                    svf.reset();
+                    rbj.reset();
+                    const double s = measureSineGainSvf(svf, tf, sr);
+                    const double r = measureSineGainRbj(rbj, tf, sr);
+                    // Both are -inf dB at a notch null; compare only
+                    // where at least one of them is measurable.
+                    if (s < -120.0 && r < -120.0) continue;
+                    CHECK_NEAR(s, r, 0.05);
+                }
+            }
+        }
+    }
+}
+
+static void testSvfModulationStability()
+{
+    std::printf("testSvfModulationStability...\n");
+    // Wishnick 2014 proves the trapezoidal SVF is time-varying BIBO
+    // stable under per-sample coefficient change. Test it empirically:
+    // audio-rate cutoff and Q modulation must stay finite and bounded
+    // — no blow-up, no NaN, no runaway resonance.
+    const double sr = 44100.0;
+    SvfFilter f;
+    f.prepare(sr);
+    f.setType(SvfFilter::Type::LowPass);
+    float peak = 0.0f;
+    for (int i = 0; i < 44100; ++i)
+    {
+        // Cutoff sweeps 100 Hz .. 18 kHz at 100 Hz; Q sweeps 0.5..10.
+        const double t = (double)i / sr;
+        const float fc = (float)(100.0 + 17900.0 * (0.5 + 0.5 * std::sin(2.0 * 3.14159265358979323846 * 100.0 * t)));
+        const float q = (float)(0.5 + 9.5 * (0.5 + 0.5 * std::sin(2.0 * 3.14159265358979323846 * 7.0 * t)));
+        f.setCutoff(fc);
+        f.setQ(q);
+        const float x = (float)std::sin(2.0 * 3.14159265358979323846 * 440.0 * t);
+        const float y = f.process(x);
+        CHECK(std::isfinite(y));
+        if (std::fabs(y) > peak) peak = std::fabs(y);
+    }
+    // A resonant peak can reach +20 dB (Q=10); 32x is far above any
+    // legitimate peak and far below a blow-up (which would be 1e30+).
+    CHECK(peak < 32.0f);
+    CHECK(peak > 0.5f); // and the filter did actually pass signal
+}
+
+static void testSvfClampAndDrive()
+{
+    std::printf("testSvfClampAndDrive...\n");
+    const double sr = 44100.0;
+    SvfFilter f;
+    f.prepare(sr);
+    f.setType(SvfFilter::Type::LowPass);
+    f.setQ(0.7071f);
+
+    // Cutoff clamping (step-1 rule): 20 Hz .. min(20 kHz, Nyquist),
+    // non-finite ignored (previous value kept).
+    f.setCutoff(0.0f);
+    CHECK_NEAR(f.getCutoff(), 20.0f, 1e-6f);
+    f.setCutoff(-100.0f);
+    CHECK_NEAR(f.getCutoff(), 20.0f, 1e-6f);
+    f.setCutoff(30000.0f);
+    CHECK_NEAR(f.getCutoff(), 20000.0f, 1e-6f);
+    f.setCutoff(1e9f);
+    CHECK_NEAR(f.getCutoff(), 20000.0f, 1e-6f);
+    f.setCutoff(std::nanf(""));
+    CHECK_NEAR(f.getCutoff(), 20000.0f, 1e-6f); // unchanged
+    f.setCutoff(1000.0f);
+
+    // Q clamping: 0.05 .. 100, non-finite ignored.
+    f.setQ(0.0f);
+    CHECK_NEAR(f.getQ(), 0.05f, 1e-6f);
+    f.setQ(-5.0f);
+    CHECK_NEAR(f.getQ(), 0.05f, 1e-6f);
+    f.setQ(1e9f);
+    CHECK_NEAR(f.getQ(), 100.0f, 1e-6f);
+    f.setQ(std::nanf(""));
+    CHECK_NEAR(f.getQ(), 100.0f, 1e-6f); // unchanged
+    f.setQ(0.7071f);
+
+    // None of the bad values may produce a non-finite sample.
+    const float badCutoffs[] = { 0.0f, -100.0f, 30000.0f, 1e9f, std::nanf("") };
+    for (float c : badCutoffs)
+    {
+        f.setCutoff(c);
+        for (int i = 0; i < 100; ++i)
+            CHECK(std::isfinite(f.process(0.5f)));
+    }
+
+    // Drive: 0 is the bypass — byte-identical output to a filter
+    // that never had drive set. Drive 1 saturates: a full-scale
+    // sine stays bounded well below full scale (tanh(8x)/8 <= 0.125).
+    SvfFilter a, b;
+    a.prepare(sr); b.prepare(sr);
+    a.setType(SvfFilter::Type::LowPass); b.setType(SvfFilter::Type::LowPass);
+    a.setCutoff(18000.0f); b.setCutoff(18000.0f);
+    a.setQ(0.7071f); b.setQ(0.7071f);
+    a.setDrive(0.0f);
+    for (int i = 0; i < 1000; ++i)
+    {
+        const float x = (float)std::sin(2.0 * 3.14159265358979323846 * 440.0 * i / sr);
+        CHECK_NEAR(a.process(x), b.process(x), 1e-7f);
+    }
+    b.setDrive(1.0f);
+    float drivePeak = 0.0f;
+    for (int i = 0; i < 4410; ++i)
+    {
+        const float x = (float)std::sin(2.0 * 3.14159265358979323846 * 440.0 * i / sr);
+        const float y = b.process(x);
+        CHECK(std::isfinite(y));
+        if (std::fabs(y) > drivePeak) drivePeak = std::fabs(y);
+    }
+    CHECK(drivePeak < 0.2f);
+    CHECK(drivePeak > 0.01f); // and the filter did actually pass signal
+}
+
+static void testDualFilter()
+{
+    std::printf("testDualFilter...\n");
+    const double sr = 44100.0;
+
+    // Serial LP + LP at 1 kHz rolls off far steeper than one LP:
+    // at 10 kHz a single LP is -43.3 dB, the serial pair must be
+    // at least 20 dB deeper.
+    DualFilter d;
+    d.prepare(sr);
+    d.setTypeA(SvfFilter::Type::LowPass);
+    d.setTypeB(SvfFilter::Type::LowPass);
+    d.setCutoffA(1000.0f);
+    d.setCutoffB(1000.0f);
+    d.setQA(0.7071f);
+    d.setQB(0.7071f);
+    d.setRouting(DualFilter::Routing::Serial);
+    SvfFilter single;
+    single.prepare(sr);
+    single.setType(SvfFilter::Type::LowPass);
+    single.setCutoff(1000.0f);
+    single.setQ(0.7071f);
+    d.reset();
+    single.reset();
+    const double serialDb = measureSineGain(d, 10000.0, sr);
+    const double singleDb = measureSineGain(single, 10000.0, sr);
+    CHECK_NEAR(singleDb, -43.316, 0.5);
+    CHECK(serialDb < singleDb - 20.0);
+
+    // Parallel: two identical LPs in parallel must equal one LP
+    // (the average of two identical responses is the response).
+    d.setRouting(DualFilter::Routing::Parallel);
+    d.reset();
+    single.reset();
+    CHECK_NEAR(measureSineGain(d, 1000.0, sr), measureSineGain(single, 1000.0, sr), 0.05);
+
+    // Parallel LP + HP at the same cutoff: at fc each is -3 dB and
+    // in opposite phase, so their average nulls (the classic
+    // parallel LP+HP notch). It must be deep and finite.
+    d.setTypeA(SvfFilter::Type::LowPass);
+    d.setTypeB(SvfFilter::Type::HighPass);
+    d.setRouting(DualFilter::Routing::Parallel);
+    d.reset();
+    const double nullDb = measureSineGain(d, 1000.0, sr);
+    CHECK(nullDb < -40.0);
+    // And away from fc it passes signal: a decade below fc the LP
+    // is ~0 dB and the HP is ~-40 dB, so their average is ~-6 dB.
+    d.reset();
+    CHECK_NEAR(measureSineGain(d, 100.0, sr), -6.0, 0.5);
+}
+
 int main()
 {
     std::printf("Therum DSP core tests (framework-free, no DAW)\n");
@@ -1004,6 +1325,11 @@ int main()
     testCutoffClamp();
     testSmoothing();
     testLimiter();
+    testSvfResponse();
+    testSvfMatchesRbj();
+    testSvfModulationStability();
+    testSvfClampAndDrive();
+    testDualFilter();
 
     std::printf("==============================================\n");
     std::printf("%d checks, %d failures\n", g_checks, g_failures);

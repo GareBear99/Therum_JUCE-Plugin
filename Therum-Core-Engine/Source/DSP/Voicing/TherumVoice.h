@@ -2,7 +2,7 @@
 #include "../Oscillators/WavetableOscillator.h"
 #include "../Oscillators/WavetableBank.h"
 #include "../Modulation/EnvelopeGenerator.h"
-#include "../Filters/SimpleLPF.h"
+#include "../Filters/SvfFilter.h"
 #include "../FX/FxRack.h"
 
 class TherumVoice
@@ -22,7 +22,7 @@ private:
     WavetableOscillator oscA;
     WavetableOscillator oscB;
     EnvelopeGenerator ampEnv;
-    SimpleLPF lpf;
+    SvfFilter filter; // the voice filter: Simper SVF, lowpass by default
     FxRack fx;
 
     bool active = false;
