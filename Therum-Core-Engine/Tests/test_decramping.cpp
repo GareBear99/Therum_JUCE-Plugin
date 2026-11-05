@@ -47,6 +47,22 @@
 // does not fake it. The rig is structured to accept a fifth
 // candidate when that implementation exists.
 //
+// The 4 kHz bell (added in piece 3, runBellConfig): the same four
+// candidates on a +6 dB, Q = 1 bell at fc = 4 kHz (fc = 0.09*fs).
+// The verdict does NOT generalise: the baseline is only -0.346 dB
+// off at its pin (vs -3.383 dB at 16 kHz), BOTH literal-pin solvers
+// CONVERGE (20 iterations, residuals ~0.002/0.009 dB), and all four
+// candidates land within 0.45 dB max error — no notch anywhere.
+// At 4 kHz the pin specifications are satisfiable because the
+// analogue gain at the pin (+1.32 dB at f_geo = 9,391 Hz) sits
+// BELOW the band-edge gain (+3 dB), so no dip-and-rise is forced;
+// at 16 kHz the pin wants +5.403 dB after +3 dB at the band edge,
+// and the biquad can only rise again with near-unit-circle zeros.
+// Orfanidis's Eq. (21) G1 (+0.188 dB) nearly matches the analogue
+// Nyquist gain (+0.219 dB) at 4 kHz, where the prewarped prototype
+// is close to the physical analogue — the 3 dB shortfall at 16 kHz
+// is a high-fc effect, not a flaw in the method.
+//
 // What the rig found on this bell (+6 dB, fc = 16 kHz, Q = 1,
 // fs = 44.1 kHz): Orfanidis peq.m is a clean bell and the best of
 // the three (max error 4.241 -> 3.245 dB, pin error -3.383 ->
@@ -713,85 +729,20 @@ static CandidateResult measureCandidate(const char* name, Filter& f,
     return r;
 }
 
-int main(int argc, char** argv)
+// ---------------------------------------------------------------------------
+// One bell configuration on the decramping rig: baseline, Orfanidis,
+// Nyquist-pin and geomean-pin, same rig, same prototype. Extracted
+// from main() so the 16 kHz bell (the FreeEQ8 worst case, fc =
+// 0.36*fs) and a 4 kHz bell (fc = 0.09*fs) run identically — the
+// question is whether the decramping verdict generalises to lower
+// fc. isPrimary marks the 16 kHz bell: only it carries the -3.383
+// dB pin (known from the FreeEQ8 paper) and the Bench sweep renders.
+// ---------------------------------------------------------------------------
+static void runBellConfig(double fc, double q, double gainDb, bool isPrimary)
 {
-    for (int i = 1; i < argc; ++i)
-    {
-        if (std::strcmp(argv[i], "--verbose") == 0) g_verbose = true;
-        if (std::strcmp(argv[i], "--render-sweeps") == 0) g_renderSweeps = true;
-    }
-    std::printf("Therum decramping test (paper section 4.5, Q2)\n");
-    std::printf("==============================================\n");
-
-    const double fc = 16000.0, q = 1.0, gainDb = 6.0;
-    const double fPin = std::sqrt(fc * kSr / 2.0); // 18,783 Hz
-    std::printf("Rig: bell +%g dB, fc = %g Hz, Q = %g, fs = %g Hz, f_pin = %.1f Hz\n",
-                gainDb, fc, q, kSr, fPin);
-
-    // --- (a) Rig validation: reproduce the FreeEQ8 table. ---
-    std::printf("\n-- Rig validation (FreeEQ8 paper section 2.4) --\n");
-    const double tableFreqs[] = { 14000.0, 16000.0, 18000.0, 18783.0, 20000.0 };
-    const double tableErr[] = { -1.554, 0.000, -2.371, -3.383, -4.241 };
-    RbjBiquad rbj;
-    rbj.setBell(kSr, fc, q, gainDb);
-    SvfFilter svfBell;
-    svfBell.prepare(kSr);
-    setupSvfBell(svfBell, fc, q, gainDb);
-    for (int i = 0; i < 5; ++i)
-    {
-        const double f = tableFreqs[i];
-        rbj.reset();
-        const double rbjGain = measureGainDb(rbj, f);
-        const double rbjErr = rbjGain - analogBellGainDb(f, fc, q, gainDb);
-        svfBell.reset();
-        const double svfGain = measureGainDb(svfBell, f);
-        const double svfErr = svfGain - analogBellGainDb(f, fc, q, gainDb);
-        std::printf("  %6.0f Hz: analog %+7.3f dB, RBJ %+7.3f dB (err %+.3f), SVF bell %+7.3f dB (err %+.3f)\n",
-                    f, analogBellGainDb(f, fc, q, gainDb), rbjGain, rbjErr, svfGain, svfErr);
-        CHECK_NEAR(rbjErr, tableErr[i], 0.02); // the rig reproduces FreeEQ8
-        CHECK_NEAR(svfErr, rbjErr, 0.01);      // SVF bell == RBJ bell here
-    }
-
-    // --- (b) SVF bell vs RBJ bell, wide sweep. ---
-    // If the FreeEQ8 bell mix is right, the two measure identical
-    // everywhere, not just at the one tested point. Gains -24..+24 dB,
-    // Q 0.5..24, fc 100 Hz..16 kHz.
-    std::printf("\n-- SVF bell vs RBJ bell, wide sweep --\n");
-    double worstDiff = 0.0;
-    double worstGain = 0.0, worstQ = 0.0, worstFc = 0.0, worstF = 0.0;
-    const double gains[] = { -24.0, -12.0, -6.0, 6.0, 12.0, 24.0 };
-    const double qs[] = { 0.5, 1.0, 2.0, 10.0, 24.0 };
-    const double fcs[] = { 100.0, 1000.0, 8000.0, 16000.0 };
-    for (double g : gains)
-    {
-        for (double qq : qs)
-        {
-            for (double fcc : fcs)
-            {
-                RbjBiquad r;
-                r.setBell(kSr, fcc, qq, g);
-                SvfFilter s;
-                s.prepare(kSr);
-                setupSvfBell(s, fcc, qq, g);
-                for (int i = 0; i <= 24; ++i)
-                {
-                    const double f = 20.0 * std::pow(1000.0, (double)i / 24.0);
-                    r.reset();
-                    s.reset();
-                    const double diff = std::fabs(measureGainDb(r, f) - measureGainDb(s, f));
-                    if (diff > worstDiff)
-                    {
-                        worstDiff = diff;
-                        worstGain = g; worstQ = qq; worstFc = fcc; worstF = f;
-                    }
-                }
-            }
-        }
-    }
-    std::printf("  worst |SVF bell - RBJ bell| = %.4f dB (gain %+.0f, Q %g, fc %g, f %g)\n",
-                worstDiff, worstGain, worstQ, worstFc, worstF);
-    CHECK(worstDiff < 0.05);
-
+    const double fPin = std::sqrt(fc * kSr / 2.0);
+    std::printf("\n-- Candidates: bell +%g dB, fc = %g Hz, Q = %g, f_pin = %.1f Hz --\n",
+                gainDb, fc, q, fPin);
     // --- (c) The candidates, same rig. ---
     std::printf("\n-- Candidates (same rig, same prototype) --\n");
     BiquadCoeffs init = rbjBellCoeffs(fc, q, gainDb);
@@ -901,8 +852,14 @@ int main(int argc, char** argv)
     std::printf("  %-32s %+10.3f %+10.3f %10.3f %10.0f\n", nyq.name, nyq.errAtPin, nyq.errAt20k, nyq.maxAbsErr, nyq.maxErrFreq);
     std::printf("  %-32s %+10.3f %+10.3f %10.3f %10.0f\n", geo.name, geo.errAtPin, geo.errAt20k, geo.maxAbsErr, geo.maxErrFreq);
 
-    // The baseline reproduces the -3.383 dB gap at the pin.
-    CHECK_NEAR(base.errAtPin, -3.383, 0.02);
+    // The baseline reproduces the -3.383 dB gap at the pin (16 kHz bell).
+    // For any bell, the sine-measured baseline error must match the
+    // analytic RBJ value — that is the rig validation at this fc.
+    const double analyticBaseErr = biquadGainDb(init, kPi2 * fPin / kSr)
+                                 - analogBellGainDb(fPin, fc, q, gainDb);
+    CHECK_NEAR(base.errAtPin, analyticBaseErr, 0.05);
+    if (isPrimary)
+        CHECK_NEAR(base.errAtPin, -3.383, 0.02);
 
     // Verdict (printed, not asserted — the table is the result).
     // On this bell (+6 dB, fc = 16 kHz, Q = 1, fs = 44.1 kHz):
@@ -917,14 +874,19 @@ int main(int argc, char** argv)
     //   the -3.383 dB they were meant to fix. Neither decramps
     //   this bell usefully. Sarkka-Huovilainen is untested here
     //   (it needs the Shannon-interpolation discretisation).
-    std::printf("\n  Verdict: Orfanidis peq.m improves the bell (max err %.3f dB)\n"
-                "  but does not close the gap; the literal pins notch it.\n",
-                orf.maxAbsErr);
+    if (!isPrimary)
+        std::printf("\n  Verdict (fc = %.0f Hz): Orfanidis max err %.3f dB;\n"
+                    "  Nyquist-pin max err %.3f dB, geomean-pin max err %.3f dB.\n",
+                    fc, orf.maxAbsErr, nyq.maxAbsErr, geo.maxAbsErr);
+    else
+        std::printf("\n  Verdict: Orfanidis peq.m improves the bell (max err %.3f dB)\n"
+                    "  but does not close the gap; the literal pins notch it.\n",
+                    orf.maxAbsErr);
 
     // Sweep renders for the Bench cramping cross-check
     // (arc_audiobench.py cramping on these WAVs should agree with
     // this rig's err@pin on the same bell).
-    if (g_renderSweeps)
+    if (isPrimary && g_renderSweeps)
     {
         std::printf("\n-- Sweep renders (Bench cramping cross-check) --\n");
         const std::pair<const char*, std::vector<float>> renders[4] = {
@@ -940,6 +902,90 @@ int main(int argc, char** argv)
             CHECK(ok);
         }
     }
+
+}
+
+int main(int argc, char** argv)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--verbose") == 0) g_verbose = true;
+        if (std::strcmp(argv[i], "--render-sweeps") == 0) g_renderSweeps = true;
+    }
+    std::printf("Therum decramping test (paper section 4.5, Q2)\n");
+    std::printf("==============================================\n");
+
+    const double fc = 16000.0, q = 1.0, gainDb = 6.0;
+    const double fPin = std::sqrt(fc * kSr / 2.0); // 18,783 Hz
+    std::printf("Rig: bell +%g dB, fc = %g Hz, Q = %g, fs = %g Hz, f_pin = %.1f Hz\n",
+                gainDb, fc, q, kSr, fPin);
+
+    // --- (a) Rig validation: reproduce the FreeEQ8 table. ---
+    std::printf("\n-- Rig validation (FreeEQ8 paper section 2.4) --\n");
+    const double tableFreqs[] = { 14000.0, 16000.0, 18000.0, 18783.0, 20000.0 };
+    const double tableErr[] = { -1.554, 0.000, -2.371, -3.383, -4.241 };
+    RbjBiquad rbj;
+    rbj.setBell(kSr, fc, q, gainDb);
+    SvfFilter svfBell;
+    svfBell.prepare(kSr);
+    setupSvfBell(svfBell, fc, q, gainDb);
+    for (int i = 0; i < 5; ++i)
+    {
+        const double f = tableFreqs[i];
+        rbj.reset();
+        const double rbjGain = measureGainDb(rbj, f);
+        const double rbjErr = rbjGain - analogBellGainDb(f, fc, q, gainDb);
+        svfBell.reset();
+        const double svfGain = measureGainDb(svfBell, f);
+        const double svfErr = svfGain - analogBellGainDb(f, fc, q, gainDb);
+        std::printf("  %6.0f Hz: analog %+7.3f dB, RBJ %+7.3f dB (err %+.3f), SVF bell %+7.3f dB (err %+.3f)\n",
+                    f, analogBellGainDb(f, fc, q, gainDb), rbjGain, rbjErr, svfGain, svfErr);
+        CHECK_NEAR(rbjErr, tableErr[i], 0.02); // the rig reproduces FreeEQ8
+        CHECK_NEAR(svfErr, rbjErr, 0.01);      // SVF bell == RBJ bell here
+    }
+
+    // --- (b) SVF bell vs RBJ bell, wide sweep. ---
+    // If the FreeEQ8 bell mix is right, the two measure identical
+    // everywhere, not just at the one tested point. Gains -24..+24 dB,
+    // Q 0.5..24, fc 100 Hz..16 kHz.
+    std::printf("\n-- SVF bell vs RBJ bell, wide sweep --\n");
+    double worstDiff = 0.0;
+    double worstGain = 0.0, worstQ = 0.0, worstFc = 0.0, worstF = 0.0;
+    const double gains[] = { -24.0, -12.0, -6.0, 6.0, 12.0, 24.0 };
+    const double qs[] = { 0.5, 1.0, 2.0, 10.0, 24.0 };
+    const double fcs[] = { 100.0, 1000.0, 8000.0, 16000.0 };
+    for (double g : gains)
+    {
+        for (double qq : qs)
+        {
+            for (double fcc : fcs)
+            {
+                RbjBiquad r;
+                r.setBell(kSr, fcc, qq, g);
+                SvfFilter s;
+                s.prepare(kSr);
+                setupSvfBell(s, fcc, qq, g);
+                for (int i = 0; i <= 24; ++i)
+                {
+                    const double f = 20.0 * std::pow(1000.0, (double)i / 24.0);
+                    r.reset();
+                    s.reset();
+                    const double diff = std::fabs(measureGainDb(r, f) - measureGainDb(s, f));
+                    if (diff > worstDiff)
+                    {
+                        worstDiff = diff;
+                        worstGain = g; worstQ = qq; worstFc = fcc; worstF = f;
+                    }
+                }
+            }
+        }
+    }
+    std::printf("  worst |SVF bell - RBJ bell| = %.4f dB (gain %+.0f, Q %g, fc %g, f %g)\n",
+                worstDiff, worstGain, worstQ, worstFc, worstF);
+    CHECK(worstDiff < 0.05);
+
+    runBellConfig(16000.0, 1.0, 6.0, true);
+    runBellConfig(4000.0, 1.0, 6.0, false);
 
     std::printf("\n==============================================\n");
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
