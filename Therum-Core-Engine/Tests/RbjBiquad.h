@@ -27,7 +27,25 @@
 class RbjBiquad
 {
 public:
-    enum class Type { LowPass, HighPass, BandPass, Notch };
+    enum class Type { LowPass, HighPass, BandPass, Notch, Bell };
+
+    // Bell (peaking) needs a gain; use setBell() for it.
+    void setBell(double sampleRate, double fc, double q, double gainDb)
+    {
+        const double w0 = 2.0 * 3.14159265358979323846 * fc / sampleRate;
+        const double alpha = std::sin(w0) / (2.0 * q);
+        const double cosw0 = std::cos(w0);
+        const double A = std::pow(10.0, gainDb / 40.0);
+        const double a0 = 1.0 + alpha / A;
+        const double a1 = -2.0 * cosw0;
+        const double a2 = 1.0 - alpha / A;
+        b0 = 1.0 + alpha * A;
+        b1 = -2.0 * cosw0;
+        b2 = 1.0 - alpha * A;
+        b0 /= a0; b1 /= a0; b2 /= a0;
+        na1 = a1 / a0; na2 = a2 / a0;
+        x1 = x2 = y1 = y2 = 0.0;
+    }
 
     void set(Type t, double sampleRate, double fc, double q)
     {
@@ -53,6 +71,12 @@ public:
                 break;
             case Type::Notch:
                 b0 = 1.0; b1 = -2.0 * cosw0; b2 = 1.0;
+                break;
+            case Type::Bell:
+                // set() has no gain parameter: this is the 0 dB bell
+                // (A = 1), i.e. a pass-through. Use setBell() for a
+                // gain. It is here only so the switch is exhaustive.
+                b0 = 1.0 + alpha; b1 = -2.0 * cosw0; b2 = 1.0 - alpha;
                 break;
         }
 

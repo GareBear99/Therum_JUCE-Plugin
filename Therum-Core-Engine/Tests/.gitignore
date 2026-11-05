@@ -1,5 +1,6 @@
 # Build output from `make` in this directory.
 test_core
 render_wavetable
+test_decramping
 # Renders produced by `make render` (measured by the ARC Audio Bench).
 *.wav

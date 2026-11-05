@@ -41,6 +41,9 @@ check:
 test_core: test_core.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ test_core.cpp $(DSP_SRCS)
 
+test_decramping: test_decramping.cpp $(DSP_DIR)/Filters/SvfFilter.cpp
+	$(CXX) $(CXXFLAGS) -o $@ test_decramping.cpp $(DSP_DIR)/Filters/SvfFilter.cpp
+
 render_wavetable: render_wavetable.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_wavetable.cpp $(DSP_SRCS)
 
@@ -53,8 +56,16 @@ render: render_wavetable
 	./render_wavetable --f0 997 --out wavetable_997hz.wav
 	./render_wavetable --f0 997 --out wavetable_997hz_naive.wav --no-mip
 
+# The decramping test rig (paper section 4.5, Q2): reproduce the
+# FreeEQ8 -3.383 dB baseline, verify the SVF bell mix against RBJ,
+# and compare the Nyquist-pin (Orfanidis spec) and geometric-mean
+# pin candidates on the same rig. The Bench's filter-response /
+# cramping test (Bench priority 1) can adopt this rig.
+decramp: test_decramping
+	./test_decramping
+
 test: check test_core
 	./test_core
 
 clean:
-	rm -f test_core render_wavetable
+	rm -f test_core render_wavetable test_decramping
