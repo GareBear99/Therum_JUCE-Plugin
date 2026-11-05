@@ -40,8 +40,20 @@ check:
 test_core: test_core.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ test_core.cpp $(DSP_SRCS)
 
+render_wavetable: render_wavetable.cpp $(DSP_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ render_wavetable.cpp $(DSP_SRCS)
+
+# Render a 997 Hz saw with mipmaps and the naive control, for the
+# ARC Audio Bench alias test (paper section 7). The Bench is a
+# separate repo; run it by hand afterwards:
+#   python3 ~/workspace/ARC-AudioBench/scripts/alias_test.py \
+#       --f0 997 wavetable_997hz.wav
+render: render_wavetable
+	./render_wavetable --f0 997 --out wavetable_997hz.wav
+	./render_wavetable --f0 997 --out wavetable_997hz_naive.wav --no-mip
+
 test: check test_core
 	./test_core
 
 clean:
-	rm -f test_core
+	rm -f test_core render_wavetable
