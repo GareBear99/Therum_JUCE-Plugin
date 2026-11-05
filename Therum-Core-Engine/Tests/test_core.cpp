@@ -27,6 +27,8 @@
 #include "../Source/DSP/Voicing/VoiceManager.h"
 #include "../Source/DSP/Utils/SmoothedParameter.h"
 #include "../Source/DSP/Utils/Limiter.h"
+#include "../Source/DSP/Utils/Fft.h"
+#include "../Source/DSP/Oscillators/WavetableBank.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -272,11 +274,68 @@ static void testLimiter()
     CHECK_NEAR(lim.process(2.0f), 0.99f, 1e-6f);
 }
 
+static void testFft()
+{
+    std::printf("testFft...\n");
+    using namespace therum::fft;
+
+    // A deterministic test signal: three harmonics plus DC.
+    const int n = 2048;
+    std::vector<float> signal((size_t)n);
+    for (int i = 0; i < n; ++i)
+    {
+        const float p = 6.28318530718f * (float)i / (float)n;
+        signal[(size_t)i] = 0.25f + 0.5f * std::sin(p * 3.0f)
+                          + 0.25f * std::sin(p * 7.0f + 0.6f)
+                          + 0.125f * std::sin(p * 40.0f);
+    }
+
+    // Forward: the spectrum must have energy only at bins 0, 3, 7, 40.
+    std::vector<std::complex<float>> bins;
+    CHECK(realForward(signal.data(), n, bins));
+    CHECK(bins.size() == (size_t)(n / 2 + 1));
+    CHECK_NEAR(std::abs(bins[0]), 0.25f * (float)n, 0.01f);
+    CHECK_NEAR(std::abs(bins[3]), 0.5f * (float)n * 0.5f, 0.01f);
+    CHECK_NEAR(std::abs(bins[7]), 0.25f * (float)n * 0.5f, 0.01f);
+    CHECK_NEAR(std::abs(bins[40]), 0.125f * (float)n * 0.5f, 0.01f);
+    float other = 0.0f;
+    for (int k = 1; k <= n / 2; ++k)
+        if (k != 3 && k != 7 && k != 40)
+            other = std::fmax(other, std::abs(bins[(size_t)k]));
+    CHECK(other < 0.01f); // no leakage into any other bin
+
+    // Round-trip: inverse(forward(x)) == x.
+    std::vector<float> back((size_t)n, 0.0f);
+    CHECK(realInverse(bins, back.data(), n));
+    for (int i = 0; i < n; ++i)
+        CHECK_NEAR(back[(size_t)i], signal[(size_t)i], 1e-4f);
+
+    // Zeroing bins above a harmonic and inverting band-limits the signal:
+    // keep only bins 0..7 and the 40th harmonic must be gone.
+    std::vector<std::complex<float>> limited = bins;
+    for (int k = 8; k <= n / 2; ++k)
+        limited[(size_t)k] = { 0.0f, 0.0f };
+    CHECK(realInverse(limited, back.data(), n));
+    std::vector<std::complex<float>> check;
+    CHECK(realForward(back.data(), n, check));
+    CHECK(std::abs(check[40]) < 0.01f);
+    CHECK_NEAR(std::abs(check[3]), 0.5f * (float)n * 0.5f, 0.01f);
+
+    // Non-power-of-two lengths are rejected, never miscomputed.
+    std::vector<std::complex<float>> bad((size_t)100, { 1.0f, 0.0f });
+    CHECK(!transform(bad, false));
+    CHECK(!realForward(signal.data(), 100, bins));
+    CHECK(!isPowerOfTwo(100));
+    CHECK(isPowerOfTwo(2048));
+    CHECK(isPowerOfTwo(1));
+}
+
 int main()
 {
     std::printf("Therum DSP core tests (framework-free, no DAW)\n");
     std::printf("==============================================\n");
 
+    testFft();
     testReleaseTail();
     testVoiceStealingRoundRobin();
     testDuplicateNoteRetrigger();
