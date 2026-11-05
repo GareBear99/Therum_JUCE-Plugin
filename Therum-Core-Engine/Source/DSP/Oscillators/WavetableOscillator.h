@@ -26,6 +26,26 @@ public:
     void setPosition(float normalized);
     void setBank(const WavetableBank* wtBank);
     void setInterpolation(Interpolation mode) { interp = mode; }
+    // How the frame position is rendered (paper section 4.1). Crossfade
+    // is the cheap default (per-sample time-domain blend). Spectral is
+    // the quality mode: the position is rendered by interpolating the
+    // frames' spectra and IFFT'ing, block-rate (see recomputeMorph).
+    enum class MorphMode
+    {
+        Crossfade,
+        Spectral
+    };
+    enum class MorphPhase
+    {
+        None,            // blend the complex bins directly
+        ZeroFundamental, // rotate frame B so its fundamental phase
+                         // matches A's, then blend (aligns the frames'
+                         // overall timing before the blend)
+        ZeroAll          // blend magnitudes only; the morphed frame is
+                         // zero-phase (all harmonics are cosines)
+    };
+    void setMorphMode(MorphMode mode);
+    void setMorphPhase(MorphPhase phaseMode);
     // Reset the phase to zero. Called on note start so every retrigger
     // begins at the same point in the table (no click from a stale phase).
     void resetPhase() { phase = 0.0; }
@@ -40,6 +60,8 @@ public:
     int getMipLo() const { return mipLo; }
     int getMipHi() const { return mipHi; }
     float getMipAlpha() const { return mipAlpha; }
+    // How many times the morphed frame was rebuilt (spectral morph).
+    int getMorphRecomputeCount() const { return morphRecomputes; }
 
 private:
     // Picks the two mip levels for the current frequency and caches the
@@ -47,6 +69,19 @@ private:
     // depends only on f0 and the sample rate, so it is never recomputed
     // per sample; call setFrequency whenever the pitch changes).
     void selectMip();
+    // Rebuilds the morphed frame for the current position (spectral
+    // morph): interpolate the adjacent frames' spectra, IFFT, then
+    // rebuild only the two mip levels currently selected.
+    void recomputeMorph();
+    // Rebuilds only the morphed frame's two mip levels (the frame itself
+    // is unchanged — used when the frequency moved the mip selection).
+    // The overload takes the morphed frame's spectrum directly, so
+    // recomputeMorph does not re-FFT the frame it just built.
+    void rebuildMorphMips();
+    void rebuildMorphMips(const std::vector<std::complex<float>>& morphed);
+    // One read from the morphed frame (its mip levels when they match
+    // the current selection, else the base morphed frame).
+    float readMorphFrame() const;
     // One table read at a fractional index (wraps). Hermite is 4-point
     // Catmull-Rom; Linear is the 2-point Eco read.
     static float readHermite(const float* table, int size, float index);
@@ -73,4 +108,21 @@ private:
     int mipLo = -1;
     int mipHi = -1;
     float mipAlpha = 0.0f;
+    // Spectral morph (the quality mode). The morphed frame is rebuilt
+    // lazily, at block rate: setPosition only marks it dirty, and
+    // process() rebuilds it once at least kMorphMinSamples have passed
+    // since the last rebuild. Rebuilding costs ~4 FFTs of 2048 samples,
+    // so it is never done per sample.
+    MorphMode morphMode = MorphMode::Crossfade;
+    MorphPhase morphPhase = MorphPhase::None;
+    static constexpr int kMorphMinSamples = 32;
+    bool morphDirty = true;
+    int samplesSinceMorph = kMorphMinSamples;
+    float morphPos = -1.0f; // position the morphed frame was built at
+    int morphMipLo = -1;    // mip levels the morphed frame was built for
+    int morphMipHi = -1;
+    std::vector<float> morphFrame; // 2048 samples, the morphed frame
+    WavetableBank::MipLevel morphLo; // its two mip levels
+    WavetableBank::MipLevel morphHi;
+    int morphRecomputes = 0;
 };

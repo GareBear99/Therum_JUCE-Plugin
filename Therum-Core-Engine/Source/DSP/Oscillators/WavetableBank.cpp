@@ -3,6 +3,7 @@
 
 const std::vector<float> WavetableBank::kEmptyTable;
 const WavetableBank::FrameMips WavetableBank::kEmptyMips;
+const std::vector<std::complex<float>> WavetableBank::kEmptySpectrum;
 
 namespace
 {
@@ -58,6 +59,7 @@ void WavetableBank::buildDefaultSineTable(int size)
 {
     frames.clear();
     frameMips.clear();
+    frameSpectra.clear();
     std::vector<float> sine((size_t)(size > 0 ? size : kFrameSize));
     for (int i = 0; i < (int)sine.size(); ++i)
         sine[(size_t)i] = sineAt((float)i / (float)sine.size());
@@ -70,6 +72,7 @@ void WavetableBank::buildDefaultBank()
 {
     frames.clear();
     frameMips.clear();
+    frameSpectra.clear();
     auto makeFrame = [this](float (*fn)(float))
     {
         std::vector<float> frame((size_t)kFrameSize);
@@ -93,6 +96,7 @@ bool WavetableBank::addFrame(const float* samples, int length)
     resampleToFrame(samples, length, frame);
     frames.push_back(std::move(frame));
     frameMips.clear(); // the new frame has no mipmaps yet
+    frameSpectra.clear();
     return true;
 }
 
@@ -101,6 +105,13 @@ const std::vector<float>& WavetableBank::getFrame(int index) const
     if (index < 0 || index >= (int)frames.size())
         return kEmptyTable;
     return frames[(size_t)index];
+}
+
+const std::vector<std::complex<float>>& WavetableBank::getFrameSpectrum(int index) const
+{
+    if (index < 0 || index >= (int)frameSpectra.size())
+        return kEmptySpectrum;
+    return frameSpectra[(size_t)index];
 }
 
 // Mipmap generation lives in WavetableBankMips.cpp (piece 3 of step 2).

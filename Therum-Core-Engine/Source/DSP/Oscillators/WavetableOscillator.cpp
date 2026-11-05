@@ -1,4 +1,5 @@
 #include "WavetableOscillator.h"
+#include "../Utils/Fft.h"
 #include <cmath>
 
 void WavetableOscillator::prepare(double sampleRate)
@@ -16,6 +17,147 @@ void WavetableOscillator::setFrequency(float hz)
 void WavetableOscillator::setPosition(float normalized)
 {
     pos = normalized < 0.0f ? 0.0f : (normalized > 1.0f ? 1.0f : normalized);
+    morphDirty = true; // the morphed frame is rebuilt lazily, block-rate
+}
+
+void WavetableOscillator::setMorphMode(MorphMode mode)
+{
+    if (mode != morphMode)
+    {
+        morphMode = mode;
+        morphDirty = true;
+        samplesSinceMorph = kMorphMinSamples; // rebuild on the next sample
+    }
+}
+
+void WavetableOscillator::setMorphPhase(MorphPhase phaseMode)
+{
+    if (phaseMode != morphPhase)
+    {
+        morphPhase = phaseMode;
+        morphDirty = true;
+    }
+}
+
+void WavetableOscillator::recomputeMorph()
+{
+    const int frames = bank->getFrameCount();
+    if (frames == 0)
+        return;
+
+    std::vector<std::complex<float>> morphed;
+    if (frames == 1)
+    {
+        // Nothing to morph between: the morphed frame is the only frame.
+        morphFrame = bank->getFrame(0);
+        morphed = bank->getFrameSpectrum(0);
+    }
+    else
+    {
+        const float fpos = pos * (float)(frames - 1);
+        int a = (int)fpos;
+        if (a >= frames - 1)
+            a = frames - 2;
+        const float alpha = fpos - (float)a;
+        const auto& specA = bank->getFrameSpectrum(a);
+        const auto& specB = bank->getFrameSpectrum(a + 1);
+        morphed.assign(specA.size(), { 0.0f, 0.0f });
+        if (morphPhase == MorphPhase::ZeroFundamental)
+        {
+            // Rotate frame B so its fundamental phase matches A's, then
+            // blend the complex bins. A frame with (nearly) no
+            // fundamental is not rotated (nothing to align to).
+            std::complex<float> rot(1.0f, 0.0f);
+            const float magA = std::abs(specA[1]);
+            const float magB = std::abs(specB[1]);
+            if (magA > 1e-6f && magB > 1e-6f)
+                rot = (specA[1] / magA) * std::conj(specB[1] / magB);
+            for (size_t k = 0; k < morphed.size(); ++k)
+                morphed[k] = specA[k] + alpha * (specB[k] * rot - specA[k]);
+        }
+        else if (morphPhase == MorphPhase::ZeroAll)
+        {
+            // Blend magnitudes only; every bin gets zero phase.
+            for (size_t k = 0; k < morphed.size(); ++k)
+            {
+                const float mag = std::abs(specA[k])
+                                  + alpha * (std::abs(specB[k]) - std::abs(specA[k]));
+                morphed[k] = { mag, 0.0f };
+            }
+        }
+        else // None: blend the complex bins directly.
+        {
+            for (size_t k = 0; k < morphed.size(); ++k)
+                morphed[k] = specA[k] + alpha * (specB[k] - specA[k]);
+        }
+        morphFrame.assign((size_t)WavetableBank::kFrameSize, 0.0f);
+        if (!therum::fft::realInverse(morphed, morphFrame.data(),
+                                      WavetableBank::kFrameSize))
+            return;
+    }
+
+    morphPos = pos;
+    morphDirty = false;
+    samplesSinceMorph = 0;
+    ++morphRecomputes;
+    rebuildMorphMips(morphed);
+}
+
+void WavetableOscillator::rebuildMorphMips()
+{
+    // Rebuilds the two mip levels from the morphed frame's spectrum.
+    // The spectrum is the interpolated bins themselves (recomputeMorph
+    // holds them); this overload is used when only the mip selection
+    // moved (frequency change), so the frame is re-FFT'd — one FFT per
+    // frequency change, not per sample.
+    if (morphFrame.empty() || mipLo < 0)
+    {
+        morphMipLo = -1;
+        morphMipHi = -1;
+        return;
+    }
+    std::vector<std::complex<float>> bins;
+    if (!therum::fft::realForward(morphFrame.data(),
+                                  WavetableBank::kFrameSize, bins))
+        return;
+    rebuildMorphMips(bins);
+}
+
+void WavetableOscillator::rebuildMorphMips(
+    const std::vector<std::complex<float>>& morphed)
+{
+    if (mipLo < 0)
+    {
+        morphMipLo = -1;
+        morphMipHi = -1;
+        return;
+    }
+    const auto& mips = bank->getFrameMips(0);
+    const int kLo = mips.levels[(size_t)mipLo].maxHarmonic;
+    const int kHi = mips.levels[(size_t)mipHi].maxHarmonic;
+    if (!WavetableBank::makeMipLevel(morphed, kLo, morphLo)
+        || !WavetableBank::makeMipLevel(morphed, kHi, morphHi))
+        return;
+    morphMipLo = mipLo;
+    morphMipHi = mipHi;
+}
+
+float WavetableOscillator::readMorphFrame() const
+{
+    if (morphFrame.empty())
+        return 0.0f;
+    if (mipLo >= 0 && morphMipLo == mipLo && morphMipHi == mipHi)
+    {
+        const auto& lo = morphLo.table;
+        const auto& hi = morphHi.table;
+        const float vLo = readTable(lo.data(), (int)lo.size(),
+                                    (float)(phase * (double)lo.size()));
+        const float vHi = readTable(hi.data(), (int)hi.size(),
+                                    (float)(phase * (double)hi.size()));
+        return vLo + mipAlpha * (vHi - vLo);
+    }
+    return readTable(morphFrame.data(), (int)morphFrame.size(),
+                     (float)(phase * (double)morphFrame.size()));
 }
 
 void WavetableOscillator::setBank(const WavetableBank* wtBank)
@@ -115,6 +257,21 @@ float WavetableOscillator::process()
             // No bank: direct sine, the scaffold fallback. The voice
             // always sets a bank; this only covers a miswired oscillator.
             return (float)std::sin(phase * 6.2831853071795864769);
+        }
+
+        // Spectral morph (the quality mode): the position is rendered
+        // from the morphed frame, rebuilt lazily at block rate. Without
+        // spectra (the bank never built mipmaps) it falls through to the
+        // per-sample crossfade below — morph is never silently wrong.
+        if (morphMode == MorphMode::Spectral && bank->hasSpectra())
+        {
+            ++samplesSinceMorph;
+            if (morphFrame.empty()
+                || (morphDirty && samplesSinceMorph >= kMorphMinSamples))
+                recomputeMorph();
+            else if (mipLo >= 0 && (morphMipLo != mipLo || morphMipHi != mipHi))
+                rebuildMorphMips();
+            return readMorphFrame();
         }
 
         const int frames = bank->getFrameCount();

@@ -52,6 +52,27 @@ int levelLength(int maxHarmonic)
 
 } // namespace
 
+bool WavetableBank::makeMipLevel(const std::vector<std::complex<float>>& spectrum,
+                                 int maxHarmonic, MipLevel& out)
+{
+    if ((int)spectrum.size() != kFrameSize / 2 + 1 || maxHarmonic < 1)
+        return false;
+    // Zero every bin above the level's harmonic cap, then IFFT.
+    std::vector<std::complex<float>> capped = spectrum;
+    for (int k = maxHarmonic + 1; k <= kFrameSize / 2; ++k)
+        capped[(size_t)k] = { 0.0f, 0.0f };
+    std::vector<float> full((size_t)kFrameSize);
+    if (!therum::fft::realInverse(capped, full.data(), kFrameSize))
+        return false;
+    const int len = levelLength(maxHarmonic);
+    out.maxHarmonic = maxHarmonic;
+    out.table.resize((size_t)len);
+    const int stride = kFrameSize / len;
+    for (int i = 0; i < len; ++i)
+        out.table[(size_t)i] = full[(size_t)(i * stride)];
+    return true;
+}
+
 bool WavetableBank::buildMipmaps()
 {
     if (frames.empty())
@@ -59,30 +80,21 @@ bool WavetableBank::buildMipmaps()
 
     static const std::vector<int> ladder = buildLadder();
     frameMips.assign(frames.size(), FrameMips());
+    frameSpectra.assign(frames.size(), {});
 
     std::vector<std::complex<float>> bins;
-    std::vector<float> full((size_t)kFrameSize);
     for (size_t f = 0; f < frames.size(); ++f)
     {
         if (!therum::fft::realForward(frames[f].data(), kFrameSize, bins))
             return false;
+        frameSpectra[f] = bins; // retained for spectral morph (piece 4)
         FrameMips& fm = frameMips[f];
         fm.levels.reserve(ladder.size());
         for (int kMax : ladder)
         {
-            // Zero every bin above the level's harmonic cap, then IFFT.
-            std::vector<std::complex<float>> capped = bins;
-            for (int k = kMax + 1; k <= kFrameSize / 2; ++k)
-                capped[(size_t)k] = { 0.0f, 0.0f };
-            if (!therum::fft::realInverse(capped, full.data(), kFrameSize))
-                return false;
-            const int len = levelLength(kMax);
             MipLevel level;
-            level.maxHarmonic = kMax;
-            level.table.resize((size_t)len);
-            const int stride = kFrameSize / len;
-            for (int i = 0; i < len; ++i)
-                level.table[(size_t)i] = full[(size_t)(i * stride)];
+            if (!makeMipLevel(bins, kMax, level))
+                return false;
             fm.levels.push_back(std::move(level));
         }
     }

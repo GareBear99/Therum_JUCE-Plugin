@@ -603,6 +603,174 @@ static void testMipmaps()
     CHECK(mipDb < naiveDb - 10.0);       // crossfade case, measured bound
 }
 
+// Amplitudes of harmonics 1..3 of a rendered oscillator tone, measured
+// with an exact-cycle FFT: f0 = sr/128, so one cycle is 128 samples and
+// 4096 samples hold exactly 32 cycles — a rectangular window leaks
+// nothing, and harmonic k sits exactly at bin 32*k with amplitude
+// 2*|X[32k]|/4096.
+static void harmonicAmps(WavetableOscillator& osc, double sr,
+                         double& a1, double& a2, double& a3)
+{
+    const double f0 = sr / 128.0;
+    const int n = 4096;
+    std::vector<float> buf((size_t)n);
+    osc.setFrequency((float)f0);
+    osc.resetPhase();
+    for (int i = 0; i < n; ++i)
+        buf[(size_t)i] = osc.process();
+    std::vector<std::complex<float>> bins;
+    CHECK(therum::fft::realForward(buf.data(), n, bins));
+    a1 = 2.0 * std::abs(bins[32]) / (double)n;
+    a2 = 2.0 * std::abs(bins[64]) / (double)n;
+    a3 = 2.0 * std::abs(bins[96]) / (double)n;
+}
+
+static void testSpectralMorph()
+{
+    std::printf("testSpectralMorph...\n");
+    const double sr = 44100.0;
+
+    // Two frames: sine and naive saw. The saw's harmonic k has amplitude
+    // 2/(pi*k); the sine's is 1 at k=1 and 0 elsewhere.
+    std::vector<float> sine((size_t)WavetableBank::kFrameSize);
+    std::vector<float> saw((size_t)WavetableBank::kFrameSize);
+    for (int i = 0; i < WavetableBank::kFrameSize; ++i)
+    {
+        const float ph = (float)i / (float)WavetableBank::kFrameSize;
+        sine[(size_t)i] = std::sin(6.2831853071795864769f * ph);
+        saw[(size_t)i] = 2.0f * ph - 1.0f;
+    }
+    WavetableBank bank;
+    CHECK(bank.addFrame(sine.data(), (int)sine.size()));
+    CHECK(bank.addFrame(saw.data(), (int)saw.size()));
+    CHECK(bank.buildMipmaps());
+    CHECK(bank.hasSpectra());
+
+    // Spectral morph at position 0.5 (None phase mode): the morphed
+    // frame's harmonics are the 50/50 blend of the two spectra. The
+    // saw's Fourier series is -(2/pi) * sum(sin(2*pi*k*t)/k), so its
+    // fundamental is a NEGATIVE sine and the blend partially cancels
+    // there: a1 = |0.5*1 - 0.5*(2/pi)| = 0.182, a2 = 0.5*(2/(2pi)) =
+    // 0.159, a3 = 0.5*(2/(3pi)) = 0.106.
+    WavetableOscillator osc;
+    osc.prepare(sr);
+    osc.setBank(&bank);
+    osc.setMorphMode(WavetableOscillator::MorphMode::Spectral);
+    osc.setPosition(0.5f);
+    // Throttle first, while the rebuild counter is fresh: the first
+    // sample builds the frame; a position change then rebuilds only
+    // after 32 samples have passed, and only once.
+    (void)osc.process();
+    CHECK(osc.getMorphRecomputeCount() == 1);
+    osc.setPosition(0.75f);
+    for (int i = 0; i < 16; ++i)
+        (void)osc.process();
+    CHECK(osc.getMorphRecomputeCount() == 1); // throttled
+    for (int i = 0; i < 16; ++i)
+        (void)osc.process();
+    CHECK(osc.getMorphRecomputeCount() == 2); // rebuilt at 32
+    for (int i = 0; i < 100; ++i)
+        (void)osc.process();
+    CHECK(osc.getMorphRecomputeCount() == 2); // not dirty anymore
+    // Back to 0.5 for the spectrum measurement (rebuilds immediately —
+    // the frame has been still for 100 samples).
+    osc.setPosition(0.5f);
+    double a1 = 0, a2 = 0, a3 = 0;
+    harmonicAmps(osc, sr, a1, a2, a3);
+    std::printf("  spectral morph 0.5 (None): a1 %.3f a2 %.3f a3 %.3f\n", a1, a2, a3);
+    CHECK(std::fabs(a1 - 0.182) < 0.02);
+    CHECK(std::fabs(a2 - 0.159) < 0.02);
+    CHECK(std::fabs(a3 - 0.106) < 0.02);
+
+    // ZeroFundamental vs None on phase-shifted frames. Frame B is a
+    // cosine (sine shifted 90 degrees). At 0.5, None blends (sin+cos)/2
+    // — amplitude 0.707; ZeroFundamental rotates B's fundamental onto
+    // A's first, so the blend is a full-amplitude sine.
+    std::vector<float> cosine((size_t)WavetableBank::kFrameSize);
+    for (int i = 0; i < WavetableBank::kFrameSize; ++i)
+    {
+        const float ph = (float)i / (float)WavetableBank::kFrameSize;
+        cosine[(size_t)i] = std::cos(6.2831853071795864769f * ph);
+    }
+    WavetableBank phaseBank;
+    CHECK(phaseBank.addFrame(sine.data(), (int)sine.size()));
+    CHECK(phaseBank.addFrame(cosine.data(), (int)cosine.size()));
+    CHECK(phaseBank.buildMipmaps());
+    WavetableOscillator ph;
+    ph.prepare(sr);
+    ph.setBank(&phaseBank);
+    ph.setMorphMode(WavetableOscillator::MorphMode::Spectral);
+    ph.setPosition(0.5f);
+    ph.setMorphPhase(WavetableOscillator::MorphPhase::None);
+    harmonicAmps(ph, sr, a1, a2, a3);
+    std::printf("  sine/cosine morph 0.5 (None): a1 %.3f\n", a1);
+    CHECK(std::fabs(a1 - 0.7071) < 0.05);
+    ph.setMorphPhase(WavetableOscillator::MorphPhase::ZeroFundamental);
+    harmonicAmps(ph, sr, a1, a2, a3);
+    std::printf("  sine/cosine morph 0.5 (ZeroFundamental): a1 %.3f\n", a1);
+    CHECK(a1 > 0.95);
+
+    // ZeroAll: the morphed frame is zero-phase, so one rendered cycle
+    // is an even function — sample[i] == sample[128-i].
+    WavetableOscillator za;
+    za.prepare(sr);
+    za.setBank(&bank);
+    za.setMorphMode(WavetableOscillator::MorphMode::Spectral);
+    za.setMorphPhase(WavetableOscillator::MorphPhase::ZeroAll);
+    za.setPosition(0.5f);
+    za.setFrequency((float)(sr / 128.0));
+    za.resetPhase();
+    std::vector<float> cycle(128);
+    for (int i = 0; i < 128; ++i)
+        cycle[(size_t)i] = za.process();
+    double maxAsym = 0.0;
+    for (int i = 1; i < 128; ++i)
+        maxAsym = std::fmax(maxAsym, std::fabs((double)cycle[(size_t)i]
+                                               - (double)cycle[(size_t)(128 - i)]));
+    std::printf("  ZeroAll cycle asymmetry: %.3g\n", maxAsym);
+    CHECK(maxAsym < 1e-3);
+
+    // The morphed frame's mip levels are real: morph to a pure saw
+    // (position 1.0) at 997 Hz and the alias ratio must match the plain
+    // saw mips (~-32 dB), far below the naive saw (~-15.6 dB).
+    WavetableOscillator morphed;
+    morphed.prepare(sr);
+    morphed.setBank(&bank);
+    morphed.setMorphMode(WavetableOscillator::MorphMode::Spectral);
+    morphed.setPosition(1.0f);
+    WavetableOscillator naive;
+    naive.prepare(sr);
+    WavetableBank naiveBank;
+    CHECK(naiveBank.addFrame(saw.data(), (int)saw.size()));
+    naive.setBank(&naiveBank);
+    const double naiveDb = aliasRatioDb(naive, 997.0f, sr);
+    const double morphDb = aliasRatioDb(morphed, 997.0f, sr);
+    std::printf("  alias/harmonic ratio at 997 Hz, morphed saw: %.1f dB (naive %.1f dB)\n",
+                morphDb, naiveDb);
+    CHECK(morphDb < naiveDb - 10.0);
+
+    // Fallback: a bank with frames but no mipmaps has no spectra, so
+    // Spectral mode falls back to the per-sample crossfade — the output
+    // is identical to Crossfade mode, sample for sample.
+    WavetableBank noMipBank;
+    CHECK(noMipBank.addFrame(sine.data(), (int)sine.size()));
+    CHECK(noMipBank.addFrame(saw.data(), (int)saw.size()));
+    WavetableOscillator fb1, fb2;
+    fb1.prepare(sr);
+    fb1.setBank(&noMipBank);
+    fb1.setPosition(0.5f);
+    fb1.setFrequency(220.0f);
+    fb2.prepare(sr);
+    fb2.setBank(&noMipBank);
+    fb2.setPosition(0.5f);
+    fb2.setFrequency(220.0f);
+    fb2.setMorphMode(WavetableOscillator::MorphMode::Spectral);
+    float maxDiff = 0.0f;
+    for (int i = 0; i < 4096; ++i)
+        maxDiff = std::fmax(maxDiff, std::fabs(fb1.process() - fb2.process()));
+    CHECK(maxDiff == 0.0f);
+}
+
 int main()
 {
     std::printf("Therum DSP core tests (framework-free, no DAW)\n");
@@ -611,6 +779,7 @@ int main()
     testFft();
     testWavetableEngine();
     testMipmaps();
+    testSpectralMorph();
     testReleaseTail();
     testVoiceStealingRoundRobin();
     testDuplicateNoteRetrigger();

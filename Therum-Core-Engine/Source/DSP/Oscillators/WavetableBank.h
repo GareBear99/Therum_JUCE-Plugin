@@ -5,7 +5,11 @@
 //
 // The bank stores only the base frames on disk / in memory. Mipmaps are
 // generated in RAM at load (see buildMipmaps) and live beside the frames.
-// The oscillator reads frames through the bank; it never owns table data.
+// The per-frame spectra (the FFT of each base frame, 1025 complex bins)
+// are retained at load too: spectral morph (piece 4) interpolates them,
+// so it never re-FFTs a frame. The oscillator reads frames through the
+// bank; it never owns table data.
+#include <complex>
 #include <vector>
 
 class WavetableBank
@@ -58,6 +62,18 @@ public:
     const FrameMips& getFrameMips(int index) const;
     // Number of mip levels (0 when no mipmaps were built).
     int getMipLevelCount() const;
+    // Per-frame spectra, retained at load (the FFT of each base frame,
+    // kFrameSize/2 + 1 complex bins). Empty when no mipmaps were built.
+    // Spectral morph interpolates these; it never re-FFTs a frame.
+    bool hasSpectra() const { return !frameSpectra.empty(); }
+    const std::vector<std::complex<float>>& getFrameSpectrum(int index) const;
+
+    // Build one mip level from a spectrum: zero the bins above
+    // maxHarmonic, IFFT, decimate to the level length. Shared by
+    // buildMipmaps and by the oscillator's spectral morph, which rebuilds
+    // only the two levels it is currently using.
+    static bool makeMipLevel(const std::vector<std::complex<float>>& spectrum,
+                             int maxHarmonic, MipLevel& out);
 
 private:
     static void resampleToFrame(const float* samples, int length,
@@ -65,6 +81,8 @@ private:
 
     std::vector<std::vector<float>> frames;
     std::vector<FrameMips> frameMips;
+    std::vector<std::vector<std::complex<float>>> frameSpectra;
     static const std::vector<float> kEmptyTable;
     static const FrameMips kEmptyMips;
+    static const std::vector<std::complex<float>> kEmptySpectrum;
 };
