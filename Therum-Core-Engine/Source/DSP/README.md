@@ -22,7 +22,7 @@ so any framework include fails the build.
 
 | Directory | Contents |
 |---|---|
-| `Oscillators/` | Wavetable oscillator + bank (sine only today; the real multi-frame engine is paper §6 rank 2). Granular / spectral oscillators are stubs that return silence until ranks 10–11. Sample + noise oscillators exist but are orphaned (never instantiated) until rank 10. |
+| `Oscillators/` | Wavetable engine (paper §6 rank 2): multi-frame bank (256 × 2048), frame-position crossfade, cubic/Hermite interpolation (linear Eco mode), mipmaps at load (1 per 3 semitones, crossfaded), crossfade + spectral morph, WAV / Serum-format import. Granular / spectral oscillators are stubs that return silence until ranks 10–11. Sample + noise oscillators exist but are orphaned (never instantiated) until rank 10. |
 | `Filters/` | One-pole lowpass today. The SVF core + dual filters are paper §6 rank 3. |
 | `Modulation/` | Linear ADSR envelope, sine LFO, mod matrix (storage only) + evaluator (macro-only today). Wiring the evaluator and the envelopes is paper §6 rank 5. |
 | `Voicing/` | Voice pool + voice manager. Round-robin stealing, same-note retrigger, release tails, parameter smoothing, output limiter (all fixed in the step-1 rebuild). |

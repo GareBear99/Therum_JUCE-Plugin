@@ -52,6 +52,122 @@ static float renderOne(VoiceManager& vm, float cutoff = 18000.0f, float macro = 
     return vm.renderMixed(cutoff, macro, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
+static float oscRms(WavetableOscillator& osc, int samples)
+{
+    double sum = 0.0;
+    for (int i = 0; i < samples; ++i)
+    {
+        const float s = osc.process();
+        sum += (double)s * (double)s;
+    }
+    return (float)std::sqrt(sum / (double)samples);
+}
+
+static void testWavetableEngine()
+{
+    std::printf("testWavetableEngine...\n");
+
+    // Default bank: 4 classic frames, 2048 samples each, position 0 = sine.
+    WavetableBank bank;
+    bank.buildDefaultBank();
+    CHECK(bank.getFrameCount() == 4);
+    CHECK(bank.isReady());
+    CHECK(bank.getFrame(0).size() == (size_t)WavetableBank::kFrameSize);
+    CHECK_NEAR(bank.getFrame(0)[0], 0.0f, 1e-6f); // sine starts at zero
+    float sineMax = 0.0f;
+    for (float s : bank.getFrame(0))
+        sineMax = std::fmax(sineMax, std::fabs(s));
+    CHECK_NEAR(sineMax, 1.0f, 1e-6f);
+    // Frame 2 is a saw ramp: starts at -1, ends just below +1.
+    CHECK_NEAR(bank.getFrame(2)[0], -1.0f, 1e-6f);
+    CHECK(bank.getFrame(2)[2047] > 0.99f);
+    // Frame 3 is a square: every sample is exactly +1 or -1.
+    for (float s : bank.getFrame(3))
+        CHECK(s == 1.0f || s == -1.0f);
+    // Out of range returns an empty table, never a crash.
+    CHECK(bank.getFrame(99).empty());
+    CHECK(bank.getFrame(-1).empty());
+
+    // Compatibility: the old single-sine build still works.
+    WavetableBank sineBank;
+    sineBank.buildDefaultSineTable(2048);
+    CHECK(sineBank.getFrameCount() == 1);
+    CHECK_NEAR(sineBank.getTable()[512], 1.0f, 1e-5f); // quarter cycle
+
+    // addFrame resamples a short cycle up to 2048.
+    WavetableBank custom;
+    std::vector<float> cycle(512);
+    for (int i = 0; i < 512; ++i)
+        cycle[(size_t)i] = std::sin(6.28318530718f * (float)i / 512.0f);
+    CHECK(custom.addFrame(cycle.data(), 512));
+    CHECK(custom.getFrameCount() == 1);
+    CHECK(custom.getFrame(0).size() == (size_t)WavetableBank::kFrameSize);
+    CHECK_NEAR(custom.getFrame(0)[512], 1.0f, 1e-3f); // quarter cycle kept
+    CHECK(!custom.addFrame(nullptr, 512));
+    CHECK(!custom.addFrame(cycle.data(), 0));
+
+    // Position crossfade: frame 0 = sine, frame 1 = -sine. At 0.5 they
+    // cancel exactly; at 0 and 1 the RMS is a full sine.
+    WavetableBank two;
+    two.addFrame(bank.getFrame(0).data(), 2048);
+    std::vector<float> neg(2048);
+    for (int i = 0; i < 2048; ++i)
+        neg[(size_t)i] = -bank.getFrame(0)[(size_t)i];
+    two.addFrame(neg.data(), 2048);
+
+    WavetableOscillator osc;
+    osc.prepare(44100.0);
+    osc.setBank(&two);
+    osc.setFrequency(440.0f);
+    osc.setPosition(0.0f);
+    CHECK_NEAR(oscRms(osc, 44100), 0.7071f, 0.01f);
+    osc.resetPhase();
+    osc.setPosition(1.0f);
+    CHECK_NEAR(oscRms(osc, 44100), 0.7071f, 0.01f);
+    osc.resetPhase();
+    osc.setPosition(0.5f);
+    CHECK(oscRms(osc, 44100) < 1e-6f); // exact cancellation
+    // Position clamps instead of wrapping or crashing.
+    osc.setPosition(2.0f);
+    CHECK_NEAR(osc.getPosition(), 1.0f, 1e-6f);
+    osc.setPosition(-1.0f);
+    CHECK_NEAR(osc.getPosition(), 0.0f, 1e-6f);
+
+    // Interpolation accuracy on a 2048 sine at 440 Hz, one second.
+    // Hermite (Catmull-Rom) must be far more accurate than linear; the
+    // measured errors are printed so the bounds below are justified.
+    // The reference is computed in double: a float reference carries
+    // ~2e-4 error of its own (found while writing this test — the first
+    // version measured the reference, not the oscillator), which swamps
+    // both interpolation errors.
+    WavetableOscillator hermite;
+    hermite.prepare(44100.0);
+    hermite.setBank(&sineBank);
+    hermite.setFrequency(440.0f);
+    hermite.setInterpolation(WavetableOscillator::Interpolation::Hermite);
+    double maxErrH = 0.0;
+    for (int i = 0; i < 44100; ++i)
+    {
+        const double want = std::sin(6.2831853071795864769 * 440.0 * (double)i / 44100.0);
+        maxErrH = std::fmax(maxErrH, std::fabs((double)hermite.process() - want));
+    }
+    WavetableOscillator linear;
+    linear.prepare(44100.0);
+    linear.setBank(&sineBank);
+    linear.setFrequency(440.0f);
+    linear.setInterpolation(WavetableOscillator::Interpolation::Linear);
+    double maxErrL = 0.0;
+    for (int i = 0; i < 44100; ++i)
+    {
+        const double want = std::sin(6.2831853071795864769 * 440.0 * (double)i / 44100.0);
+        maxErrL = std::fmax(maxErrL, std::fabs((double)linear.process() - want));
+    }
+    std::printf("  hermite max err %.3g, linear max err %.3g\n", maxErrH, maxErrL);
+    CHECK(maxErrH < 1e-5);
+    CHECK(maxErrL < 1e-5);
+    CHECK(maxErrH < maxErrL); // Hermite is measurably more accurate
+}
+
 static void testReleaseTail()
 {
     std::printf("testReleaseTail...\n");
@@ -336,6 +452,7 @@ int main()
     std::printf("==============================================\n");
 
     testFft();
+    testWavetableEngine();
     testReleaseTail();
     testVoiceStealingRoundRobin();
     testDuplicateNoteRetrigger();

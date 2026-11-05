@@ -3,7 +3,11 @@
 
 void VoiceManager::prepare(double sampleRate, int voices)
 {
-    bank.buildDefaultSineTable(2048);
+    // Four classic frames (sine, triangle, saw, square). Position 0 is
+    // the sine, so the voice sounds exactly as it did on the single sine
+    // table until a position parameter reaches the oscillator.
+    // (Mipmaps are built here too, once piece 3 lands.)
+    bank.buildDefaultBank();
     pool.resize((size_t)voices);
     for (auto& v : pool)
         v.prepare(sampleRate, &bank);
