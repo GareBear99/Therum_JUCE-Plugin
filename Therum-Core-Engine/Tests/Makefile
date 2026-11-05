@@ -44,6 +44,9 @@ test_core: test_core.cpp $(DSP_SRCS)
 test_decramping: test_decramping.cpp $(DSP_DIR)/Filters/SvfFilter.cpp
 	$(CXX) $(CXXFLAGS) -o $@ test_decramping.cpp $(DSP_DIR)/Filters/SvfFilter.cpp
 
+test_moogladder: test_moogladder.cpp $(DSP_DIR)/Filters/MoogLadderFilter.cpp
+	$(CXX) $(CXXFLAGS) -o $@ test_moogladder.cpp $(DSP_DIR)/Filters/MoogLadderFilter.cpp
+
 render_wavetable: render_wavetable.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_wavetable.cpp $(DSP_SRCS)
 
@@ -63,6 +66,15 @@ render: render_wavetable
 # cramping test (Bench priority 1) can adopt this rig.
 decramp: test_decramping
 	./test_decramping
+
+# The Moog ladder test (paper section 4.5, Huovilainen 2004 at 2x):
+# core response vs the analogue ladder prototype at fc = 100 / 1000 /
+# 8000 / 16000 Hz (the low-fc rows are the "decramping at lower fc"
+# measurement), DC gain 1/(1+k), rolloff, resonance peak,
+# self-oscillation, stability sweep, 1x-vs-2x alias comparison,
+# full-path response, and a CPU benchmark.
+moog: test_moogladder
+	./test_moogladder
 
 test: check test_core
 	./test_core
