@@ -446,6 +446,163 @@ static void testFft()
     CHECK(isPowerOfTwo(1));
 }
 
+// Alias-to-harmonic energy ratio (dB) of a rendered oscillator tone.
+// Renders 2 seconds, FFTs the last 16384 samples under a Blackman
+// window, and sums the energy at non-harmonic bins vs harmonic bins (a
+// bin is harmonic if it is within 3 bins of a multiple of f0 — the
+// Blackman main lobe is +-3 bins wide). Blackman, not Hann: Hann's
+// -31 dB sidelobes set a leakage floor that swamps the measurement
+// (found while writing this test), Blackman's are -58 dB. This is the
+// same idea as the Bench alias test, reduced to one number for the
+// unit test; the full Bench run on a real render is piece 6.
+static double aliasRatioDb(WavetableOscillator& osc, float f0, double sr)
+{
+    const int total = (int)(2.0 * sr);
+    const int n = 16384;
+    std::vector<float> tail((size_t)n);
+    osc.setFrequency(f0);
+    osc.resetPhase();
+    for (int i = 0; i < total; ++i)
+    {
+        const float s = osc.process();
+        if (i >= total - n)
+            tail[(size_t)(i - (total - n))] = s;
+    }
+    // Blackman window, then FFT.
+    std::vector<std::complex<float>> bins;
+    std::vector<float> win((size_t)n);
+    for (int i = 0; i < n; ++i)
+    {
+        const float a = 6.2831853071795864769f * (float)i / (float)(n - 1);
+        const float w = 0.42f - 0.5f * std::cos(a) + 0.08f * std::cos(2.0f * a);
+        win[(size_t)i] = tail[(size_t)i] * w;
+    }
+    CHECK(therum::fft::realForward(win.data(), n, bins));
+    const double binHz = sr / (double)n;
+    double harmonicE = 0.0, aliasE = 0.0;
+    for (int k = 1; k <= n / 2; ++k)
+    {
+        const double mag2 = std::norm(bins[(size_t)k]);
+        // Nearest harmonic index to this bin.
+        const double h = std::round((double)k * binHz / (double)f0);
+        const double harmBin = h * (double)f0 / binHz;
+        if (h >= 1.0 && std::fabs((double)k - harmBin) <= 3.0)
+            harmonicE += mag2;
+        else
+            aliasE += mag2;
+    }
+    return 10.0 * std::log10(aliasE / harmonicE);
+}
+
+static void testMipmaps()
+{
+    std::printf("testMipmaps...\n");
+
+    // One naive saw frame (a ramp -1 -> +1). Its harmonics fall as 1/k,
+    // so it is the worst case for aliasing: every harmonic above
+    // Nyquist folds back audibly.
+    std::vector<float> saw((size_t)WavetableBank::kFrameSize);
+    for (int i = 0; i < WavetableBank::kFrameSize; ++i)
+        saw[(size_t)i] = -1.0f + 2.0f * (float)i / (float)WavetableBank::kFrameSize;
+
+    WavetableBank bank;
+    CHECK(bank.addFrame(saw.data(), (int)saw.size()));
+    CHECK(!bank.hasMipmaps());
+    CHECK(bank.buildMipmaps());
+    CHECK(bank.hasMipmaps());
+    const int levels = bank.getMipLevelCount();
+    std::printf("  mip levels: %d\n", levels);
+    CHECK(levels >= 30);
+
+    // Ladder: strictly decreasing harmonic caps, 1024 down to 1, and
+    // every table length is a power of two >= max(4, 2*K).
+    const auto& mips = bank.getFrameMips(0);
+    CHECK(mips.levels[0].maxHarmonic == 1024);
+    CHECK(mips.levels[(size_t)(levels - 1)].maxHarmonic == 1);
+    for (int i = 0; i < levels; ++i)
+    {
+        const auto& lv = mips.levels[(size_t)i];
+        if (i > 0)
+            CHECK(lv.maxHarmonic < mips.levels[(size_t)(i - 1)].maxHarmonic);
+        const int len = (int)lv.table.size();
+        CHECK(therum::fft::isPowerOfTwo((size_t)len));
+        CHECK(len >= 4 && len >= 2 * lv.maxHarmonic);
+        for (float s : lv.table)
+            CHECK(std::isfinite(s));
+    }
+
+    // Harmonic content of the K=128 level: the saw's bins 1..128 are
+    // kept, bins above 128 are gone. (The naive saw's bin k has
+    // magnitude ~ 1/k of the fundamental, so bin 1 is the reference.)
+    int idx128 = -1;
+    for (int i = 0; i < levels; ++i)
+        if (mips.levels[(size_t)i].maxHarmonic == 128)
+            idx128 = i;
+    CHECK(idx128 >= 0);
+    const auto& lv128 = mips.levels[(size_t)idx128];
+    std::vector<std::complex<float>> bins;
+    CHECK(therum::fft::realForward(lv128.table.data(), (int)lv128.table.size(), bins));
+    const double fund = std::abs(bins[1]);
+    CHECK(fund > 0.1);
+    for (int k = 129; k <= (int)lv128.table.size() / 2; ++k)
+        CHECK(std::abs(bins[(size_t)k]) < fund * 1e-3);
+    // And bin 64 is still there (the level keeps what it claims to).
+    CHECK(std::abs(bins[64]) > fund * 1e-3);
+
+    // Mip selection: at f0 = sr/(2*512) the allowed max is exactly 512,
+    // so the selection is pure the K=512 level — expressed as the
+    // bracketing pair (609, 512) with alpha 1.0 (all hi), not as lo==hi.
+    WavetableOscillator osc;
+    osc.prepare(44100.0);
+    osc.setBank(&bank);
+    osc.setFrequency(44100.0f / (2.0f * 512.0f));
+    int idx512 = -1;
+    for (int i = 0; i < levels; ++i)
+        if (mips.levels[(size_t)i].maxHarmonic == 512)
+            idx512 = i;
+    CHECK(idx512 >= 0);
+    CHECK(osc.getMipHi() == idx512 && osc.getMipAlpha() == 1.0f);
+
+    // Between levels: f0 giving kAllowed = 400 sits between the K=431
+    // and K=362 levels, so the blend is strictly inside (0, 1).
+    osc.setFrequency(44100.0f / (2.0f * 400.0f));
+    CHECK(osc.getMipAlpha() > 0.0f && osc.getMipAlpha() < 1.0f);
+    CHECK(osc.getMipLo() >= 0 && osc.getMipHi() == osc.getMipLo() + 1);
+
+    // Alias suppression, the headline. Two frequencies:
+    // (a) f0 = sr/(2*19): the allowed max is exactly 19, so the
+    // selection is pure the K=19 level — no crossfade contribution, no
+    // harmonic above 19 exists. The mipped render must be essentially
+    // alias-free (only window leakage remains), far below the naive.
+    // (b) 997 Hz (the Bench's frequency): here the crossfade holds a
+    // ~24% share of the K=23 level, and harmonic 23 folds — so the
+    // mipped render is better than naive but not alias-free. That is
+    // the crossfade trade, documented in the oscillator, and the bound
+    // here is the measured one (10 dB), not the 20 dB the pure case
+    // shows. The Bench's alias test measures -15.8 dB ASR for the
+    // naive 997 Hz saw; the naive number below should land near it.
+    WavetableOscillator naive;
+    naive.prepare(44100.0);
+    WavetableBank naiveBank;
+    CHECK(naiveBank.addFrame(saw.data(), (int)saw.size()));
+    naive.setBank(&naiveBank);
+    WavetableOscillator mipped;
+    mipped.prepare(44100.0);
+    mipped.setBank(&bank);
+    const float fPure = 44100.0f / (2.0f * 19.0f);
+    const double naivePure = aliasRatioDb(naive, fPure, 44100.0);
+    const double mipPure = aliasRatioDb(mipped, fPure, 44100.0);
+    const double naiveDb = aliasRatioDb(naive, 997.0f, 44100.0);
+    const double mipDb = aliasRatioDb(mipped, 997.0f, 44100.0);
+    std::printf("  alias/harmonic ratio, pure level (%.1f Hz): naive %.1f dB, mipped %.1f dB\n",
+                fPure, naivePure, mipPure);
+    std::printf("  alias/harmonic ratio at 997 Hz: naive %.1f dB, mipped %.1f dB\n",
+                naiveDb, mipDb);
+    CHECK(mipPure < -40.0);              // essentially alias-free
+    CHECK(mipPure < naivePure - 20.0);   // at least 20 dB cleaner
+    CHECK(mipDb < naiveDb - 10.0);       // crossfade case, measured bound
+}
+
 int main()
 {
     std::printf("Therum DSP core tests (framework-free, no DAW)\n");
@@ -453,6 +610,7 @@ int main()
 
     testFft();
     testWavetableEngine();
+    testMipmaps();
     testReleaseTail();
     testVoiceStealingRoundRobin();
     testDuplicateNoteRetrigger();

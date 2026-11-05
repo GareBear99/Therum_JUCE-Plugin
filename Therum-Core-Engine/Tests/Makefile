@@ -16,6 +16,7 @@ DSP_DIR = ../Source/DSP
 DSP_SRCS = \
 	$(DSP_DIR)/Oscillators/WavetableOscillator.cpp \
 	$(DSP_DIR)/Oscillators/WavetableBank.cpp \
+	$(DSP_DIR)/Oscillators/WavetableBankMips.cpp \
 	$(DSP_DIR)/Utils/Fft.cpp \
 	$(DSP_DIR)/Filters/SimpleLPF.cpp \
 	$(DSP_DIR)/Modulation/EnvelopeGenerator.cpp \

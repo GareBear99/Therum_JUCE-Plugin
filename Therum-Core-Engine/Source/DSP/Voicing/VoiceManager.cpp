@@ -5,9 +5,11 @@ void VoiceManager::prepare(double sampleRate, int voices)
 {
     // Four classic frames (sine, triangle, saw, square). Position 0 is
     // the sine, so the voice sounds exactly as it did on the single sine
-    // table until a position parameter reaches the oscillator.
-    // (Mipmaps are built here too, once piece 3 lands.)
+    // table until a position parameter reaches the oscillator. Mipmaps
+    // are built at load (paper section 4.1): one level per 3 semitones,
+    // FFT-zero-IFFT-decimate, ~8x the base frame in memory.
     bank.buildDefaultBank();
+    bank.buildMipmaps();
     pool.resize((size_t)voices);
     for (auto& v : pool)
         v.prepare(sampleRate, &bank);

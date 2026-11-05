@@ -34,8 +34,19 @@ public:
     // Test/verification hooks.
     float getPosition() const { return pos; }
     float getFrequency() const { return freq; }
+    // Cached mip selection for the current frequency: the two level
+    // indices being crossfaded and the blend (0 = all lo, 1 = all hi).
+    // -1 means the bank has no mipmaps.
+    int getMipLo() const { return mipLo; }
+    int getMipHi() const { return mipHi; }
+    float getMipAlpha() const { return mipAlpha; }
 
 private:
+    // Picks the two mip levels for the current frequency and caches the
+    // crossfade. Called from setFrequency/prepare/setBank (the selection
+    // depends only on f0 and the sample rate, so it is never recomputed
+    // per sample; call setFrequency whenever the pitch changes).
+    void selectMip();
     // One table read at a fractional index (wraps). Hermite is 4-point
     // Catmull-Rom; Linear is the 2-point Eco read.
     static float readHermite(const float* table, int size, float index);
@@ -58,4 +69,8 @@ private:
     double phase = 0.0;
     Interpolation interp = Interpolation::Hermite;
     const WavetableBank* bank = nullptr;
+    // Cached mip selection (see selectMip). -1 = bank has no mipmaps.
+    int mipLo = -1;
+    int mipHi = -1;
+    float mipAlpha = 0.0f;
 };
