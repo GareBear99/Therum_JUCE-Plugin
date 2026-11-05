@@ -18,6 +18,7 @@ DSP_SRCS = \
 	$(DSP_DIR)/Oscillators/WavetableBank.cpp \
 	$(DSP_DIR)/Oscillators/WavetableBankMips.cpp \
 	$(DSP_DIR)/Utils/Fft.cpp \
+	$(DSP_DIR)/Utils/WavImport.cpp \
 	$(DSP_DIR)/Filters/SimpleLPF.cpp \
 	$(DSP_DIR)/Modulation/EnvelopeGenerator.cpp \
 	$(DSP_DIR)/Voicing/TherumVoice.cpp \

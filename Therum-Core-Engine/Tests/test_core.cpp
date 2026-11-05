@@ -22,12 +22,14 @@
 
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 #include "../Source/DSP/Voicing/VoiceManager.h"
 #include "../Source/DSP/Utils/SmoothedParameter.h"
 #include "../Source/DSP/Utils/Limiter.h"
 #include "../Source/DSP/Utils/Fft.h"
+#include "../Source/DSP/Utils/WavImport.h"
 #include "../Source/DSP/Oscillators/WavetableBank.h"
 
 static int g_checks = 0;
@@ -771,6 +773,220 @@ static void testSpectralMorph()
     CHECK(maxDiff == 0.0f);
 }
 
+// Synthesize a minimal WAV in memory for the import tests. `samples`
+// is interleaved mono/stereo/etc. float in -1..1; `format` 1 = PCM,
+// 3 = float; `bits` 16/24/32 (PCM) or 32 (float). `junk` inserts an
+// unknown chunk between fmt and data, to prove it is skipped.
+static std::vector<uint8_t> makeWav(const std::vector<float>& samples,
+                                    int channels, int format, int bits,
+                                    bool junk = false)
+{
+    const int bytesPerSample = (bits + 7) / 8;
+    const int frameBytes = bytesPerSample * channels;
+    const size_t dataBytes = samples.size() * (size_t)bytesPerSample;
+    const size_t fmtSize = 16;
+    const size_t junkSize = junk ? 8 + 4 : 0; // "JUNK" + 4 payload bytes
+    const size_t riffSize = 4 + (8 + fmtSize) + junkSize + (8 + dataBytes);
+    std::vector<uint8_t> wav;
+    auto putTag = [&wav](const char* t) { wav.insert(wav.end(), t, t + 4); };
+    auto putU16 = [&wav](uint16_t v)
+    {
+        wav.push_back((uint8_t)(v & 0xFF));
+        wav.push_back((uint8_t)((v >> 8) & 0xFF));
+    };
+    auto putU32 = [&wav](uint32_t v)
+    {
+        wav.push_back((uint8_t)(v & 0xFF));
+        wav.push_back((uint8_t)((v >> 8) & 0xFF));
+        wav.push_back((uint8_t)((v >> 16) & 0xFF));
+        wav.push_back((uint8_t)((v >> 24) & 0xFF));
+    };
+    putTag("RIFF");
+    putU32((uint32_t)riffSize);
+    putTag("WAVE");
+    putTag("fmt ");
+    putU32((uint32_t)fmtSize);
+    putU16((uint16_t)format);
+    putU16((uint16_t)channels);
+    putU32(44100);
+    putU32((uint32_t)(44100 * frameBytes));
+    putU16((uint16_t)frameBytes);
+    putU16((uint16_t)bits);
+    if (junk)
+    {
+        putTag("JUNK");
+        putU32(4);
+        wav.insert(wav.end(), { 0xDE, 0xAD, 0xBE, 0xEF });
+    }
+    putTag("data");
+    putU32((uint32_t)dataBytes);
+    for (float s : samples)
+    {
+        if (format == 3)
+        {
+            uint32_t v;
+            std::memcpy(&v, &s, 4);
+            putU32(v);
+        }
+        else if (bits == 16)
+        {
+            const int16_t v = (int16_t)std::lround(s * 32767.0f);
+            putU16((uint16_t)v);
+        }
+        else if (bits == 24)
+        {
+            int32_t v = (int32_t)std::lround(s * 8388607.0f);
+            wav.push_back((uint8_t)(v & 0xFF));
+            wav.push_back((uint8_t)((v >> 8) & 0xFF));
+            wav.push_back((uint8_t)((v >> 16) & 0xFF));
+        }
+        else // 32-bit PCM
+        {
+            const int32_t v = (int32_t)std::lround(s * 2147483647.0f);
+            putU32((uint32_t)v);
+        }
+    }
+    return wav;
+}
+
+static std::vector<float> sineCycle(int length)
+{
+    std::vector<float> cycle((size_t)length);
+    for (int i = 0; i < length; ++i)
+        cycle[(size_t)i] = std::sin(6.2831853071795864769f * (float)i / (float)length);
+    return cycle;
+}
+
+static void testWavImport()
+{
+    std::printf("testWavImport...\n");
+    const auto sine2048 = sineCycle(2048);
+
+    // Mono 16-bit PCM, one frame: values match the sine to 16-bit
+    // quantization (1/32768).
+    {
+        auto wav = makeWav(sine2048, 1, 1, 16);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.error == nullptr);
+        CHECK(r.framesAdded == 1 && r.framesDropped == 0 && r.totalSamples == 2048);
+        CHECK(bank.getFrameCount() == 1);
+        const auto& frame = bank.getFrame(0);
+        CHECK(frame.size() == 2048);
+        float maxErr = 0.0f;
+        for (int i = 0; i < 2048; ++i)
+            maxErr = std::fmax(maxErr, std::fabs(frame[(size_t)i] - sine2048[(size_t)i]));
+        // Two error sources: the encoder scales by 32767 while the
+        // decoder divides by 32768 (1/32768 systematic), plus rounding
+        // (0.5 LSB). Worst case 1.5/32768 = 4.58e-5.
+        CHECK(maxErr < 5e-5f);
+    }
+
+    // Two frames: sine then cosine (Serum-style, 2048-sample frames).
+    {
+        std::vector<float> two = sine2048;
+        // Shift the sine by a quarter cycle to make a cosine.
+        std::vector<float> cosFrame(2048);
+        for (int i = 0; i < 2048; ++i)
+            cosFrame[(size_t)i] = std::cos(6.2831853071795864769f * (float)i / 2048.0f);
+        two.insert(two.end(), cosFrame.begin(), cosFrame.end());
+        auto wav = makeWav(two, 1, 1, 16);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 2 && bank.getFrameCount() == 2);
+        CHECK(std::fabs(bank.getFrame(1)[0] - 1.0f) < 1e-4f); // cosine starts at 1
+        CHECK(std::fabs(bank.getFrame(1)[512]) < 1e-4f);      // cosine crosses 0
+    }
+
+    // Stereo 16-bit: L = sine, R = 0 -> mono is half the sine.
+    {
+        std::vector<float> stereo;
+        for (float s : sine2048)
+        {
+            stereo.push_back(s);
+            stereo.push_back(0.0f);
+        }
+        auto wav = makeWav(stereo, 2, 1, 16);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 1 && r.totalSamples == 2048);
+        CHECK(std::fabs(bank.getFrame(0)[512] - 0.5f) < 1e-4f); // sine peak halved
+    }
+
+    // 24-bit PCM and 32-bit float: values match.
+    {
+        auto wav24 = makeWav(sine2048, 1, 1, 24);
+        WavetableBank bank24;
+        const auto r24 = importWav(bank24, wav24.data(), wav24.size());
+        CHECK(r24.ok && r24.framesAdded == 1);
+        float maxErr = 0.0f;
+        for (int i = 0; i < 2048; ++i)
+            maxErr = std::fmax(maxErr, std::fabs(bank24.getFrame(0)[(size_t)i]
+                                                 - sine2048[(size_t)i]));
+        CHECK(maxErr < 1e-6f);
+        auto wavF = makeWav(sine2048, 1, 3, 32);
+        WavetableBank bankF;
+        const auto rF = importWav(bankF, wavF.data(), wavF.size());
+        CHECK(rF.ok && rF.framesAdded == 1);
+        CHECK(bankF.getFrame(0)[512] == 1.0f); // exact for float
+    }
+
+    // One short cycle (512 samples): resampled to 2048 as a single frame.
+    {
+        const auto short_ = sineCycle(512);
+        auto wav = makeWav(short_, 1, 1, 16);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 1 && r.totalSamples == 512);
+        // Resampled to 2048: the sine peak lands at index 512.
+        CHECK(std::fabs(bank.getFrame(0)[512] - 1.0f) < 1e-4f);
+    }
+
+    // Non-multiple length: 5000 samples -> 2 frames, 904 dropped.
+    {
+        std::vector<float> five(5000, 0.5f);
+        auto wav = makeWav(five, 1, 1, 16);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 2 && r.framesDropped == 1);
+        CHECK(r.samplesDropped == 904 && r.totalSamples == 5000);
+    }
+
+    // Unknown chunk between fmt and data is skipped.
+    {
+        auto wav = makeWav(sine2048, 1, 1, 16, true);
+        WavetableBank bank;
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 1);
+    }
+
+    // Bank capacity: 255 frames already there, import 2 -> 1 added, 1 skipped.
+    {
+        WavetableBank bank;
+        for (int i = 0; i < 255; ++i)
+            CHECK(bank.addFrame(sine2048.data(), 2048));
+        std::vector<float> two = sine2048;
+        two.insert(two.end(), sine2048.begin(), sine2048.end());
+        auto wav = makeWav(two, 1, 1, 16);
+        const auto r = importWav(bank, wav.data(), wav.size());
+        CHECK(r.ok && r.framesAdded == 1 && r.framesSkipped == 1);
+        CHECK(bank.getFrameCount() == 256);
+    }
+
+    // Malformed files: not a WAV, truncated, unsupported format, empty.
+    {
+        WavetableBank bank;
+        const uint8_t notWav[12] = { 'N', 'O', 'P', 'E', 0, 0, 0, 0, 0, 0, 0, 0 };
+        CHECK(!importWav(bank, notWav, sizeof(notWav)).ok);
+        auto wav = makeWav(sine2048, 1, 1, 16);
+        CHECK(!importWav(bank, wav.data(), 20).ok); // truncated mid-fmt
+        auto wav6 = makeWav(sine2048, 1, 6, 16);    // format 6 (a-law)
+        CHECK(!importWav(bank, wav6.data(), wav6.size()).ok);
+        CHECK(!importWav(bank, nullptr, 0).ok);
+        CHECK(bank.getFrameCount() == 0); // nothing added by the failures
+    }
+}
+
 int main()
 {
     std::printf("Therum DSP core tests (framework-free, no DAW)\n");
@@ -780,6 +996,7 @@ int main()
     testWavetableEngine();
     testMipmaps();
     testSpectralMorph();
+    testWavImport();
     testReleaseTail();
     testVoiceStealingRoundRobin();
     testDuplicateNoteRetrigger();
