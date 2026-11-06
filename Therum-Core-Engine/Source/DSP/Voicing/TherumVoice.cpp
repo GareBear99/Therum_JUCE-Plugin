@@ -43,7 +43,7 @@ void TherumVoice::stop()
     ampEnv.noteOff();
 }
 
-float TherumVoice::render(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix)
+float TherumVoice::render(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix, float wtPosA, float wtPosB)
 {
     if (!active) return 0.0f;
 
@@ -60,6 +60,13 @@ float TherumVoice::render(float filterCutoff, float filterReso, float macroAmoun
     const float modulatedCutoff = filterCutoff * (0.5f + macroAmount * 0.5f);
     filter.setCutoff(modulatedCutoff);
     filter.setResonance(filterReso); // ladder only; the SVF keeps Q = 0.7071
+
+    // Frame positions, per sample from the manager's smoothers. The
+    // oscillator clamps and no-ops on an unchanged value, so a settled
+    // position costs nothing — and in spectral mode the morphed frame
+    // rebuilds lazily, at most every 32 samples while the position moves.
+    oscA.setPosition(wtPosA);
+    oscB.setPosition(wtPosB);
 
     const float raw = (oscA.process() * 0.62f) + (oscB.process() * 0.38f);
     const float filtered = filter.process(raw);

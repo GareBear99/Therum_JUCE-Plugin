@@ -51,6 +51,12 @@ test_moogladder: test_moogladder.cpp $(DSP_DIR)/Filters/MoogLadderFilter.cpp
 test_voicefilter: test_voicefilter.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ test_voicefilter.cpp $(DSP_SRCS)
 
+test_morph: test_morph.cpp $(DSP_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ test_morph.cpp $(DSP_SRCS)
+
+test_envelope: test_envelope.cpp $(DSP_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ test_envelope.cpp $(DSP_SRCS)
+
 render_wavetable: render_wavetable.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_wavetable.cpp $(DSP_SRCS)
 
@@ -80,9 +86,11 @@ decramp: test_decramping
 moog: test_moogladder
 	./test_moogladder
 
-test: check test_core test_voicefilter
+test: check test_core test_voicefilter test_morph test_envelope
 	./test_core
 	./test_voicefilter
+	./test_morph
+	./test_envelope
 
 # The voice filter test (paper section 4.5, ladder wired into the
 # voice at 1x): ladder equivalence, SVF unchanged, the 1x cutoff
@@ -93,5 +101,20 @@ test: check test_core test_voicefilter
 voicefilter: test_voicefilter
 	./test_voicefilter
 
+# The morph test (paper section 4.1, morph wired into the voice):
+# frame-position wiring, Spectral/None == Crossfade, ZeroAll
+# differs, ZeroFundamental rotates, click-free mid-note switching,
+# single-frame and no-spectra banks, the MorphChoice mapping, the
+# UI selector path, the lazy rebuild rate, and position smoothing.
+morph: test_morph
+	./test_morph
+
+# The envelope test (the ADSR wired into the voice): attack reaches
+# the envelope, sustain sets the settled level, the release tail,
+# click-free mid-note sustain changes (the sustain stage glides
+# over ~10 ms), and the 10/120/0.75/220 ms default.
+envelope: test_envelope
+	./test_envelope
+
 clean:
-	rm -f test_core render_wavetable test_decramping test_voicefilter
+	rm -f test_core render_wavetable test_decramping test_voicefilter test_morph test_envelope

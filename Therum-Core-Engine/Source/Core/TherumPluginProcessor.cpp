@@ -2,6 +2,7 @@
 #include "TherumPluginEditor.h"
 #include "ParameterIDs.h"
 #include "../DSP/Filters/FilterTypeChoice.h"
+#include "../DSP/Oscillators/MorphChoice.h"
 
 TherumPluginProcessor::TherumPluginProcessor()
 : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
@@ -47,19 +48,42 @@ void TherumPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const float delayMix = apvts.getRawParameterValue(TherumParams::fx_delayMix)->load();
     const float reverbMix = apvts.getRawParameterValue(TherumParams::fx_reverbMix)->load();
     const float distMix = apvts.getRawParameterValue(TherumParams::fx_distMix)->load();
+    const float wtPosA = apvts.getRawParameterValue(TherumParams::oscA_wtPos)->load();
+    const float wtPosB = apvts.getRawParameterValue(TherumParams::oscB_wtPos)->load();
+    const int morphModeAIndex = (int)apvts.getRawParameterValue(TherumParams::oscA_morphMode)->load();
+    const int morphPhaseAIndex = (int)apvts.getRawParameterValue(TherumParams::oscA_morphPhase)->load();
+    const int morphModeBIndex = (int)apvts.getRawParameterValue(TherumParams::oscB_morphMode)->load();
+    const int morphPhaseBIndex = (int)apvts.getRawParameterValue(TherumParams::oscB_morphPhase)->load();
 
     // The filter type is a discrete choice: apply it once per block
     // (the manager change-detects, and each voice crossfades, so a
     // change never clicks). The resonance is smoothed per sample
     // inside the manager, like the cutoff.
     voiceManager.setFilterType(TherumFilterChoice::typeFromIndex(filterTypeIndex));
+    // The ADSR is a discrete set of stage times: apply it once per
+    // block (the manager change-detects). The envelope value is
+    // continuous, so a mid-note change just changes the slope from
+    // here — it never clicks.
+    voiceManager.setADSR(apvts.getRawParameterValue(TherumParams::env1_attack)->load(),
+                         apvts.getRawParameterValue(TherumParams::env1_decay)->load(),
+                         apvts.getRawParameterValue(TherumParams::env1_sustain)->load(),
+                         apvts.getRawParameterValue(TherumParams::env1_release)->load());
+    // The morph mode/phase are discrete choices too: apply them once
+    // per block (the manager change-detects, and each oscillator
+    // crossfades over 128 samples on a change, so a switch never
+    // clicks). The frame positions are smoothed per sample inside
+    // the manager, like the cutoff.
+    voiceManager.setMorphA(TherumMorphChoice::modeFromIndex(morphModeAIndex),
+                           TherumMorphChoice::phaseFromIndex(morphPhaseAIndex));
+    voiceManager.setMorphB(TherumMorphChoice::modeFromIndex(morphModeBIndex),
+                           TherumMorphChoice::phaseFromIndex(morphPhaseBIndex));
 
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         // The core owns the master gain (it converts dB to linear, smooths
         // it, applies it, and limits the result), so the processor just
         // passes the raw parameter values through.
-        const float s = voiceManager.renderMixed(filterCutoff, filterReso, macro1, delayMix, reverbMix, distMix, masterGainDb);
+        const float s = voiceManager.renderMixed(filterCutoff, filterReso, macro1, delayMix, reverbMix, distMix, masterGainDb, wtPosA, wtPosB);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.setSample(ch, sample, s);
     }
@@ -91,10 +115,36 @@ juce::AudioProcessorValueTreeState::ParameterLayout TherumPluginProcessor::creat
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscA_wtPos, "Osc A WT Pos", 0.0f, 1.0f, 0.25f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscA_level, "Osc A Level", 0.0f, 1.0f, 0.80f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscA_detune, "Osc A Detune", 0.0f, 1.0f, 0.10f));
+    // The morph mode/phase for osc A. Crossfade is the cheap default;
+    // Spectral is the quality mode (paper section 4.1). The labels
+    // come from TherumMorphChoice, the same list the OscPanel
+    // selectors show, so the parameter and the panel can never drift
+    // apart. The phase choice is inert in Crossfade mode.
+    {
+        juce::StringArray morphModeChoices;
+        for (const char* label : TherumMorphChoice::modeLabels)
+            morphModeChoices.add(label);
+        p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::oscA_morphMode, "Osc A Morph Mode", morphModeChoices, TherumMorphChoice::modeDefaultIndex));
+        juce::StringArray morphPhaseChoices;
+        for (const char* label : TherumMorphChoice::phaseLabels)
+            morphPhaseChoices.add(label);
+        p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::oscA_morphPhase, "Osc A Morph Phase", morphPhaseChoices, TherumMorphChoice::phaseDefaultIndex));
+    }
 
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscB_wtPos, "Osc B WT Pos", 0.0f, 1.0f, 0.50f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscB_level, "Osc B Level", 0.0f, 1.0f, 0.60f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::oscB_detune, "Osc B Detune", 0.0f, 1.0f, 0.10f));
+    // The morph mode/phase for osc B (same lists as osc A).
+    {
+        juce::StringArray morphModeChoices;
+        for (const char* label : TherumMorphChoice::modeLabels)
+            morphModeChoices.add(label);
+        p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::oscB_morphMode, "Osc B Morph Mode", morphModeChoices, TherumMorphChoice::modeDefaultIndex));
+        juce::StringArray morphPhaseChoices;
+        for (const char* label : TherumMorphChoice::phaseLabels)
+            morphPhaseChoices.add(label);
+        p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::oscB_morphPhase, "Osc B Morph Phase", morphPhaseChoices, TherumMorphChoice::phaseDefaultIndex));
+    }
 
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::sub_level, "Sub Level", 0.0f, 1.0f, 0.35f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::noise_level, "Noise Level", 0.0f, 1.0f, 0.0f));

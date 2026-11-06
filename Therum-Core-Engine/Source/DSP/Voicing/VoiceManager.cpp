@@ -15,6 +15,9 @@ void VoiceManager::prepare(double sampleRate, int voices)
     {
         v.prepare(sampleRate, &bank);
         v.setFilterType(currentFilterType);
+        v.setMorphA(currentMorphModeA, currentMorphPhaseA);
+        v.setMorphB(currentMorphModeB, currentMorphPhaseB);
+        v.setADSR(currentAttackMs, currentDecayMs, currentSustain, currentReleaseMs);
     }
 
     nextVoice = 0;
@@ -26,6 +29,8 @@ void VoiceManager::prepare(double sampleRate, int voices)
     reverbSmooth.prepare(sampleRate, 10.0f);
     distSmooth.prepare(sampleRate, 10.0f);
     masterSmooth.prepare(sampleRate, 10.0f);
+    wtPosASmooth.prepare(sampleRate, 10.0f);
+    wtPosBSmooth.prepare(sampleRate, 10.0f);
 
     limiter.prepare(sampleRate, 100.0f);
     limiter.setThreshold(0.99f);
@@ -108,7 +113,40 @@ void VoiceManager::setFilterType(TherumFilterType type)
         v.setFilterType(type);
 }
 
-float VoiceManager::renderMixed(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb)
+void VoiceManager::setMorphA(WavetableOscillator::MorphMode mode, WavetableOscillator::MorphPhase phase)
+{
+    if (mode == currentMorphModeA && phase == currentMorphPhaseA)
+        return;
+    currentMorphModeA = mode;
+    currentMorphPhaseA = phase;
+    for (auto& v : pool)
+        v.setMorphA(mode, phase);
+}
+
+void VoiceManager::setMorphB(WavetableOscillator::MorphMode mode, WavetableOscillator::MorphPhase phase)
+{
+    if (mode == currentMorphModeB && phase == currentMorphPhaseB)
+        return;
+    currentMorphModeB = mode;
+    currentMorphPhaseB = phase;
+    for (auto& v : pool)
+        v.setMorphB(mode, phase);
+}
+
+void VoiceManager::setADSR(float aMs, float dMs, float s, float rMs)
+{
+    if (aMs == currentAttackMs && dMs == currentDecayMs
+        && s == currentSustain && rMs == currentReleaseMs)
+        return;
+    currentAttackMs = aMs;
+    currentDecayMs = dMs;
+    currentSustain = s;
+    currentReleaseMs = rMs;
+    for (auto& v : pool)
+        v.setADSR(aMs, dMs, s, rMs);
+}
+
+float VoiceManager::renderMixed(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb, float wtPosA, float wtPosB)
 {
     // Smooth every parameter that reaches audio, once per sample. The
     // smoothers snap to their first target, so the first block has no ramp
@@ -121,6 +159,8 @@ float VoiceManager::renderMixed(float filterCutoff, float filterReso, float macr
     reverbSmooth.setTarget(reverbMix);
     distSmooth.setTarget(distMix);
     masterSmooth.setTarget(std::pow(10.0f, masterGainDb * 0.05f));
+    wtPosASmooth.setTarget(wtPosA);
+    wtPosBSmooth.setTarget(wtPosB);
 
     const float cutoff = cutoffSmooth.process();
     const float reso = resoSmooth.process();
@@ -129,10 +169,12 @@ float VoiceManager::renderMixed(float filterCutoff, float filterReso, float macr
     const float reverb = reverbSmooth.process();
     const float dist = distSmooth.process();
     const float masterLin = masterSmooth.process();
+    const float posA = wtPosASmooth.process();
+    const float posB = wtPosBSmooth.process();
 
     float mix = 0.0f;
     for (auto& v : pool)
-        mix += v.render(cutoff, reso, macro, delay, reverb, dist);
+        mix += v.render(cutoff, reso, macro, delay, reverb, dist, posA, posB);
 
     // Master gain, then the limiter. The limiter guarantees the output
     // never exceeds its threshold, however many voices are sounding.

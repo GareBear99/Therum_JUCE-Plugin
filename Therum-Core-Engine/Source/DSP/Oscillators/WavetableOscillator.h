@@ -62,6 +62,11 @@ public:
     float getMipAlpha() const { return mipAlpha; }
     // How many times the morphed frame was rebuilt (spectral morph).
     int getMorphRecomputeCount() const { return morphRecomputes; }
+    // Samples remaining in the morph-switch crossfade (0 = no crossfade
+    // in progress). A mode/phase change crossfades the outputs over
+    // kMorphXfadeSamples so the switch never clicks, like the voice
+    // filter's type crossfade (VoiceFilter::kCrossfadeSamples = 128).
+    int getMorphXfadeRemaining() const { return morphXfade; }
 
 private:
     // Picks the two mip levels for the current frequency and caches the
@@ -82,6 +87,11 @@ private:
     // One read from the morphed frame (its mip levels when they match
     // the current selection, else the base morphed frame).
     float readMorphFrame() const;
+    // One read from the frame before a morph mode/phase switch (the
+    // crossfade source). Mirrors readMorphFrame on the preserved
+    // previous frame and its mip levels; falls back to the base
+    // previous frame when the mip selection has moved since.
+    float readPrevMorphFrame() const;
     // One table read at a fractional index (wraps). Hermite is 4-point
     // Catmull-Rom; Linear is the 2-point Eco read.
     static float readHermite(const float* table, int size, float index);
@@ -125,4 +135,22 @@ private:
     WavetableBank::MipLevel morphLo; // its two mip levels
     WavetableBank::MipLevel morphHi;
     int morphRecomputes = 0;
+    // Morph-switch crossfade (same standard as the voice filter's
+    // type crossfade). A mode/phase change rebuilds the morphed frame
+    // from different spectra, so the read would jump from one
+    // waveshape to another in a single sample — a click. The rebuild
+    // preserves the previous frame (and its mip levels) and the
+    // output crossfades from it over kMorphXfadeSamples. Position
+    // moves rebuild the frame too, but they do NOT crossfade: the
+    // position is a continuous glide, and crossfading every rebuild
+    // would smear it. Only a mode/phase change arms the crossfade
+    // (morphSwitchPending, set by setMorphMode/setMorphPhase).
+    static constexpr int kMorphXfadeSamples = 128;
+    bool morphSwitchPending = false;
+    int morphXfade = 0; // samples remaining in the crossfade
+    std::vector<float> prevMorphFrame; // the frame before the switch
+    WavetableBank::MipLevel prevMorphLo; // its two mip levels
+    WavetableBank::MipLevel prevMorphHi;
+    int prevMorphMipLo = -1; // mip levels the previous frame was built for
+    int prevMorphMipHi = -1;
 };

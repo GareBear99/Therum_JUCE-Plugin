@@ -16,7 +16,20 @@ void WavetableOscillator::setFrequency(float hz)
 
 void WavetableOscillator::setPosition(float normalized)
 {
-    pos = normalized < 0.0f ? 0.0f : (normalized > 1.0f ? 1.0f : normalized);
+    const float clamped = normalized < 0.0f ? 0.0f
+                          : (normalized > 1.0f ? 1.0f : normalized);
+    if (clamped == pos)
+        return; // no-op: the morphed frame is already built for this
+                // position, so there is nothing to rebuild. Without
+                // this the voice — which sets the position every
+                // sample from its smoothed parameter — would mark the
+                // frame dirty on every sample, and spectral morph
+                // would rebuild every kMorphMinSamples even at a
+                // fixed position. A moving position still marks dirty
+                // (the smoothed value changes every sample while it
+                // glides), so the frame tracks the glide and stops
+                // rebuilding once the smoother settles.
+    pos = clamped;
     morphDirty = true; // the morphed frame is rebuilt lazily, block-rate
 }
 
@@ -27,6 +40,7 @@ void WavetableOscillator::setMorphMode(MorphMode mode)
         morphMode = mode;
         morphDirty = true;
         samplesSinceMorph = kMorphMinSamples; // rebuild on the next sample
+        morphSwitchPending = true; // the rebuild crossfades (see below)
     }
 }
 
@@ -36,6 +50,7 @@ void WavetableOscillator::setMorphPhase(MorphPhase phaseMode)
     {
         morphPhase = phaseMode;
         morphDirty = true;
+        morphSwitchPending = true; // the rebuild crossfades (see below)
     }
 }
 
@@ -44,6 +59,23 @@ void WavetableOscillator::recomputeMorph()
     const int frames = bank->getFrameCount();
     if (frames == 0)
         return;
+
+    // A mode/phase switch rebuilds the frame from different spectra,
+    // so the read would jump waveshapes in one sample. Preserve the
+    // frame being replaced (and its mip levels) so process() can
+    // crossfade from it over kMorphXfadeSamples. A plain position
+    // rebuild does not crossfade (no pending switch), and a first
+    // render has no previous frame to crossfade from.
+    const bool crossfade = morphSwitchPending && !morphFrame.empty();
+    if (crossfade)
+    {
+        prevMorphFrame = morphFrame;
+        prevMorphLo = morphLo;
+        prevMorphHi = morphHi;
+        prevMorphMipLo = morphMipLo;
+        prevMorphMipHi = morphMipHi;
+    }
+    morphSwitchPending = false;
 
     std::vector<std::complex<float>> morphed;
     if (frames == 1)
@@ -101,6 +133,8 @@ void WavetableOscillator::recomputeMorph()
     samplesSinceMorph = 0;
     ++morphRecomputes;
     rebuildMorphMips(morphed);
+    if (crossfade)
+        morphXfade = kMorphXfadeSamples; // start the output crossfade
 }
 
 void WavetableOscillator::rebuildMorphMips()
@@ -158,6 +192,24 @@ float WavetableOscillator::readMorphFrame() const
     }
     return readTable(morphFrame.data(), (int)morphFrame.size(),
                      (float)(phase * (double)morphFrame.size()));
+}
+
+float WavetableOscillator::readPrevMorphFrame() const
+{
+    if (prevMorphFrame.empty())
+        return 0.0f;
+    if (mipLo >= 0 && prevMorphMipLo == mipLo && prevMorphMipHi == mipHi)
+    {
+        const auto& lo = prevMorphLo.table;
+        const auto& hi = prevMorphHi.table;
+        const float vLo = readTable(lo.data(), (int)lo.size(),
+                                    (float)(phase * (double)lo.size()));
+        const float vHi = readTable(hi.data(), (int)hi.size(),
+                                    (float)(phase * (double)hi.size()));
+        return vLo + mipAlpha * (vHi - vLo);
+    }
+    return readTable(prevMorphFrame.data(), (int)prevMorphFrame.size(),
+                     (float)(phase * (double)prevMorphFrame.size()));
 }
 
 void WavetableOscillator::setBank(const WavetableBank* wtBank)
@@ -271,7 +323,19 @@ float WavetableOscillator::process()
                 recomputeMorph();
             else if (mipLo >= 0 && (morphMipLo != mipLo || morphMipHi != mipHi))
                 rebuildMorphMips();
-            return readMorphFrame();
+            const float v = readMorphFrame();
+            // A mode/phase switch crossfades from the preserved
+            // previous frame over kMorphXfadeSamples, so the switch
+            // never clicks. The fade runs 0 -> 1 (previous -> new);
+            // once it reaches 1 the crossfade is done.
+            if (morphXfade > 0 && !prevMorphFrame.empty())
+            {
+                const float t = 1.0f - (float)morphXfade / (float)kMorphXfadeSamples;
+                --morphXfade;
+                const float prev = readPrevMorphFrame();
+                return prev + t * (v - prev);
+            }
+            return v;
         }
 
         const int frames = bank->getFrameCount();

@@ -13,11 +13,17 @@ void TherumAttachments::wire(TopBarPanel& topBar, OscPanel& oscPanel, FilterPane
 
     masterGainAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::masterGain, topBar.getMasterGainSlider());
     oscAWtPosAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::oscA_wtPos, oscPanel.getWtPosSlider());
+    oscAMorphModeAttachment = std::make_unique<ComboBoxAttachment>(apvts, TherumParams::oscA_morphMode, oscPanel.getMorphModeBox());
+    oscAMorphPhaseAttachment = std::make_unique<ComboBoxAttachment>(apvts, TherumParams::oscA_morphPhase, oscPanel.getMorphPhaseBox());
     filterCutoffAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::filter1_cutoff, filterPanel.getCutoffSlider());
     filterResoAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::filter1_reso, filterPanel.getResoSlider());
     filterTypeAttachment = std::make_unique<ComboBoxAttachment>(apvts, TherumParams::filter1_type, filterPanel.getTypeComboBox());
     macro1Attachment = std::make_unique<SliderAttachment>(apvts, TherumParams::macro1, modPanel.getMacro1Slider());
     macro2Attachment = std::make_unique<SliderAttachment>(apvts, TherumParams::macro2, modPanel.getMacro2Slider());
+    attackAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::env1_attack, modPanel.getAttackSlider());
+    decayAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::env1_decay, modPanel.getDecaySlider());
+    sustainAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::env1_sustain, modPanel.getSustainSlider());
+    releaseAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::env1_release, modPanel.getReleaseSlider());
     delayMixAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::fx_delayMix, fxPanel.getDelayMixSlider());
     reverbMixAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::fx_reverbMix, fxPanel.getReverbMixSlider());
     distMixAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::fx_distMix, fxPanel.getDistMixSlider());

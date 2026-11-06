@@ -573,7 +573,7 @@ int main()
         bool finiteSvf = true;
         for (int i = 0; i < (int)(kSr * 0.5); ++i)
         {
-            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             if (!std::isfinite(s)) finiteSvf = false;
             sumSqSvf += (double)s * s;
             maxSvf = std::max(maxSvf, (double)std::fabs(s));
@@ -585,7 +585,7 @@ int main()
         bool finiteLad = true;
         for (int i = 0; i < (int)(kSr * 0.5); ++i)
         {
-            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             if (!std::isfinite(s)) finiteLad = false;
             sumSqLad += (double)s * s;
             maxLad = std::max(maxLad, (double)std::fabs(s));
@@ -609,7 +609,7 @@ int main()
         bool finiteFresh = true;
         for (int i = 0; i < (int)(kSr * 0.25); ++i)
         {
-            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            const float s = vm.renderMixed(1000.0f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             if (!std::isfinite(s)) finiteFresh = false;
             sumSqFresh += (double)s * s;
         }
@@ -643,7 +643,7 @@ int main()
             vm.noteOn(83, 1.0f);
             std::vector<float> out((size_t)n);
             for (int i = 0; i < n; ++i)
-                out[(size_t)i] = vm.renderMixed(8000.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                out[(size_t)i] = vm.renderMixed(8000.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             CHECK(writeWav("voicefilter_voice_ladder_1x.wav", out, (int)kSr));
             std::printf("  voicefilter_voice_ladder_1x.wav written (%d samples)\n", n);
         }
@@ -868,7 +868,7 @@ int main()
         {
             std::vector<float> out((size_t)samples);
             for (int i = 0; i < samples; ++i)
-                out[(size_t)i] = vm.renderMixed(cutoff, reso, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                out[(size_t)i] = vm.renderMixed(cutoff, reso, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             return out;
         };
         auto rmsOf = [&](const std::vector<float>& v, int from)

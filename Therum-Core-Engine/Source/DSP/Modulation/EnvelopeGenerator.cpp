@@ -22,7 +22,20 @@ float EnvelopeGenerator::process()
     {
         case 1: value += aStep; if (value >= 1.0f) { value = 1.0f; stage = 2; } break;
         case 2: value -= dStep; if (value <= sustain) { value = sustain; stage = 3; } break;
-        case 3: value = sustain; break;
+        case 3:
+            // Sustain: hold the level — gliding to it over ~10 ms if
+            // the sustain parameter changed mid-note. A plain
+            // `value = sustain` would jump the output in one sample
+            // on a sustain change (a click on an automatable
+            // parameter); the glide keeps it continuous. On entry
+            // from decay the value already equals sustain, so the
+            // glide is a no-op and the settled level is exact.
+            {
+                const float step = 1.0f / (float)(0.010 * sr);
+                if (value < sustain) value = std::min(value + step, sustain);
+                else if (value > sustain) value = std::max(value - step, sustain);
+            }
+            break;
         case 4: value -= rStep; if (value <= 0.0f) { value = 0.0f; stage = 0; } break;
         default: value = 0.0f; break;
     }

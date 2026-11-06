@@ -7,10 +7,14 @@ namespace TherumParams
     static constexpr auto oscA_wtPos = "oscA_wtPos";
     static constexpr auto oscA_level = "oscA_level";
     static constexpr auto oscA_detune = "oscA_detune";
+    static constexpr auto oscA_morphMode = "oscA_morphMode";
+    static constexpr auto oscA_morphPhase = "oscA_morphPhase";
 
     static constexpr auto oscB_wtPos = "oscB_wtPos";
     static constexpr auto oscB_level = "oscB_level";
     static constexpr auto oscB_detune = "oscB_detune";
+    static constexpr auto oscB_morphMode = "oscB_morphMode";
+    static constexpr auto oscB_morphPhase = "oscB_morphPhase";
 
     static constexpr auto sub_level = "sub_level";
     static constexpr auto noise_level = "noise_level";
