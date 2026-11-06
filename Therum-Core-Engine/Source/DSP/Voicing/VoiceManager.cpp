@@ -12,11 +12,15 @@ void VoiceManager::prepare(double sampleRate, int voices)
     bank.buildMipmaps();
     pool.resize((size_t)voices);
     for (auto& v : pool)
+    {
         v.prepare(sampleRate, &bank);
+        v.setFilterType(currentFilterType);
+    }
 
     nextVoice = 0;
 
     cutoffSmooth.prepare(sampleRate, 10.0f);
+    resoSmooth.prepare(sampleRate, 10.0f);
     macroSmooth.prepare(sampleRate, 10.0f);
     delaySmooth.prepare(sampleRate, 10.0f);
     reverbSmooth.prepare(sampleRate, 10.0f);
@@ -95,13 +99,23 @@ void VoiceManager::allNotesOff()
             v.stop();
 }
 
-float VoiceManager::renderMixed(float filterCutoff, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb)
+void VoiceManager::setFilterType(TherumFilterType type)
+{
+    if (type == currentFilterType)
+        return;
+    currentFilterType = type;
+    for (auto& v : pool)
+        v.setFilterType(type);
+}
+
+float VoiceManager::renderMixed(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb)
 {
     // Smooth every parameter that reaches audio, once per sample. The
     // smoothers snap to their first target, so the first block has no ramp
     // from zero. Smoothing lives here (globally) because all voices share
     // the same parameter values.
     cutoffSmooth.setTarget(filterCutoff);
+    resoSmooth.setTarget(filterReso);
     macroSmooth.setTarget(macroAmount);
     delaySmooth.setTarget(delayMix);
     reverbSmooth.setTarget(reverbMix);
@@ -109,6 +123,7 @@ float VoiceManager::renderMixed(float filterCutoff, float macroAmount, float del
     masterSmooth.setTarget(std::pow(10.0f, masterGainDb * 0.05f));
 
     const float cutoff = cutoffSmooth.process();
+    const float reso = resoSmooth.process();
     const float macro = macroSmooth.process();
     const float delay = delaySmooth.process();
     const float reverb = reverbSmooth.process();
@@ -117,7 +132,7 @@ float VoiceManager::renderMixed(float filterCutoff, float macroAmount, float del
 
     float mix = 0.0f;
     for (auto& v : pool)
-        mix += v.render(cutoff, macro, delay, reverb, dist);
+        mix += v.render(cutoff, reso, macro, delay, reverb, dist);
 
     // Master gain, then the limiter. The limiter guarantees the output
     // never exceeds its threshold, however many voices are sounding.

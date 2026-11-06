@@ -54,7 +54,7 @@ static int g_failures = 0;
 // macro = 1 so the modulated cutoff equals the cutoff passed in.
 static float renderOne(VoiceManager& vm, float cutoff = 18000.0f, float macro = 1.0f)
 {
-    return vm.renderMixed(cutoff, macro, 0.0f, 0.0f, 0.0f, 0.0f);
+    return vm.renderMixed(cutoff, 0.15f, macro, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 static float oscRms(WavetableOscillator& osc, int samples)
@@ -286,7 +286,7 @@ static void testCutoffClamp()
     {
         for (int i = 0; i < 100; ++i)
         {
-            const float s = vm.renderMixed(c, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            const float s = vm.renderMixed(c, 0.15f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             CHECK(std::isfinite(s));
         }
     }
@@ -339,12 +339,12 @@ static void testSmoothing()
     // (20000 samples is far longer than the 10 ms smoothing time constant
     // and the filter's settling time), then measure again over a beat.
     for (int i = 0; i < 20000; ++i)
-        vm.renderMixed(100.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        vm.renderMixed(100.0f, 0.15f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     float lateRms = 0.0f;
     for (int i = 0; i < 20000; ++i)
     {
-        const float s = vm.renderMixed(100.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        const float s = vm.renderMixed(100.0f, 0.15f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         lateRms += s * s;
     }
     lateRms = std::sqrt(lateRms / 20000.0f);
@@ -367,7 +367,7 @@ static void testLimiter()
     float maxAbs = 0.0f;
     for (int i = 0; i < 20000; ++i)
     {
-        const float s = vm.renderMixed(18000.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        const float s = vm.renderMixed(18000.0f, 0.15f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         CHECK(std::isfinite(s));
         maxAbs = std::fmax(maxAbs, std::fabs(s));
     }
@@ -378,7 +378,7 @@ static void testLimiter()
     maxAbs = 0.0f;
     for (int i = 0; i < 5000; ++i)
     {
-        const float s = vm.renderMixed(18000.0f, 1.0f, 0.0f, 0.0f, 0.0f, 12.0f);
+        const float s = vm.renderMixed(18000.0f, 0.15f, 1.0f, 0.0f, 0.0f, 0.0f, 12.0f);
         CHECK(std::isfinite(s));
         maxAbs = std::fmax(maxAbs, std::fabs(s));
     }

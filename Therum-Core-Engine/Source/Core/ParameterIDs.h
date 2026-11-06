@@ -18,6 +18,7 @@ namespace TherumParams
     static constexpr auto filter1_cutoff = "filter1_cutoff";
     static constexpr auto filter1_reso = "filter1_reso";
     static constexpr auto filter1_drive = "filter1_drive";
+    static constexpr auto filter1_type = "filter1_type";
 
     static constexpr auto env1_attack = "env1_attack";
     static constexpr auto env1_decay = "env1_decay";

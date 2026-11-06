@@ -2,6 +2,22 @@
 #include "TherumPluginEditor.h"
 #include "ParameterIDs.h"
 
+// Maps the filter1_type choice index (0 Low Pass, 1 High Pass,
+// 2 Band Pass, 3 Notch, 4 Ladder) to the voice filter type. Any
+// out-of-range index falls back to the shipped Low Pass.
+static TherumFilterType filterTypeFromIndex(int index)
+{
+    switch (index)
+    {
+        case 1: return TherumFilterType::HighPass;
+        case 2: return TherumFilterType::BandPass;
+        case 3: return TherumFilterType::Notch;
+        case 4: return TherumFilterType::Ladder;
+        case 0:
+        default: return TherumFilterType::LowPass;
+    }
+}
+
 TherumPluginProcessor::TherumPluginProcessor()
 : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
   apvts(*this, nullptr, "THERUM_STATE", createParameterLayout())
@@ -40,17 +56,25 @@ void TherumPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     const float masterGainDb = apvts.getRawParameterValue(TherumParams::masterGain)->load();
     const float filterCutoff = apvts.getRawParameterValue(TherumParams::filter1_cutoff)->load();
+    const float filterReso = apvts.getRawParameterValue(TherumParams::filter1_reso)->load();
+    const int filterTypeIndex = (int)apvts.getRawParameterValue(TherumParams::filter1_type)->load();
     const float macro1 = apvts.getRawParameterValue(TherumParams::macro1)->load();
     const float delayMix = apvts.getRawParameterValue(TherumParams::fx_delayMix)->load();
     const float reverbMix = apvts.getRawParameterValue(TherumParams::fx_reverbMix)->load();
     const float distMix = apvts.getRawParameterValue(TherumParams::fx_distMix)->load();
+
+    // The filter type is a discrete choice: apply it once per block
+    // (the manager change-detects, and each voice crossfades, so a
+    // change never clicks). The resonance is smoothed per sample
+    // inside the manager, like the cutoff.
+    voiceManager.setFilterType(filterTypeFromIndex(filterTypeIndex));
 
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         // The core owns the master gain (it converts dB to linear, smooths
         // it, applies it, and limits the result), so the processor just
         // passes the raw parameter values through.
-        const float s = voiceManager.renderMixed(filterCutoff, macro1, delayMix, reverbMix, distMix, masterGainDb);
+        const float s = voiceManager.renderMixed(filterCutoff, filterReso, macro1, delayMix, reverbMix, distMix, masterGainDb);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.setSample(ch, sample, s);
     }
@@ -93,6 +117,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout TherumPluginProcessor::creat
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::filter1_cutoff, "Filter 1 Cutoff", 20.0f, 20000.0f, 18000.0f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::filter1_reso, "Filter 1 Resonance", 0.1f, 1.0f, 0.15f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::filter1_drive, "Filter 1 Drive", 0.0f, 1.0f, 0.0f));
+    // The voice filter type. Index 0 (Low Pass) is the shipped voice
+    // filter; Ladder selects the Moog ladder (1x in production).
+    // The resonance parameter drives the ladder only — in SVF mode
+    // it is inert (the SVF keeps Q = 0.7071).
+    p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::filter1_type, "Filter 1 Type", juce::StringArray{"Low Pass", "High Pass", "Band Pass", "Notch", "Ladder"}, 0));
 
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::env1_attack, "Env 1 Attack", 1.0f, 5000.0f, 10.0f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::env1_decay, "Env 1 Decay", 1.0f, 5000.0f, 120.0f));

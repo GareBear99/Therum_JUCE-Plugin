@@ -3,5 +3,6 @@ test_core
 render_wavetable
 test_decramping
 test_moogladder
+test_voicefilter
 # Renders produced by `make render` (measured by the ARC Audio Bench).
 *.wav

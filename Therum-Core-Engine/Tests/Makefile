@@ -20,6 +20,7 @@ DSP_SRCS = \
 	$(DSP_DIR)/Utils/Fft.cpp \
 	$(DSP_DIR)/Utils/WavImport.cpp \
 	$(DSP_DIR)/Filters/SvfFilter.cpp \
+	$(DSP_DIR)/Filters/MoogLadderFilter.cpp \
 	$(DSP_DIR)/Filters/DualFilter.cpp \
 	$(DSP_DIR)/Modulation/EnvelopeGenerator.cpp \
 	$(DSP_DIR)/Voicing/TherumVoice.cpp \
@@ -46,6 +47,9 @@ test_decramping: test_decramping.cpp $(DSP_DIR)/Filters/SvfFilter.cpp
 
 test_moogladder: test_moogladder.cpp $(DSP_DIR)/Filters/MoogLadderFilter.cpp
 	$(CXX) $(CXXFLAGS) -o $@ test_moogladder.cpp $(DSP_DIR)/Filters/MoogLadderFilter.cpp
+
+test_voicefilter: test_voicefilter.cpp $(DSP_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ test_voicefilter.cpp $(DSP_SRCS)
 
 render_wavetable: render_wavetable.cpp $(DSP_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ render_wavetable.cpp $(DSP_SRCS)
@@ -76,8 +80,16 @@ decramp: test_decramping
 moog: test_moogladder
 	./test_moogladder
 
-test: check test_core
+test: check test_core test_voicefilter
 	./test_core
+	./test_voicefilter
+
+# The voice filter test (paper section 4.5, ladder wired into the
+# voice at 1x): ladder equivalence, SVF unchanged, the 1x cutoff
+# clamp, click-free type switching, denormals, the 1x stability
+# sweep, the voice render, and the NMR renders for the Bench.
+voicefilter: test_voicefilter
+	./test_voicefilter
 
 clean:
-	rm -f test_core render_wavetable test_decramping
+	rm -f test_core render_wavetable test_decramping test_voicefilter

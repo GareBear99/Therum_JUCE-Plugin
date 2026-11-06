@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include "../Filters/FilterModels.h"
 #include "../Oscillators/WavetableBank.h"
 #include "../Utils/SmoothedParameter.h"
 #include "../Utils/Limiter.h"
@@ -25,11 +26,20 @@ public:
     void noteOff(int midiNote);
     void allNotesOff();
 
+    // The voice filter type (SVF LowPass by default; Ladder selects
+    // the Moog ladder). Applied to every voice in the pool, and to
+    // voices prepared afterwards. A change crossfades per voice, so
+    // it never clicks. Safe to call per block (cheap change-detect).
+    void setFilterType(TherumFilterType type);
+
     // Renders one sample of the summed mix. masterGainDb is the host's
     // master gain in dB; the manager converts it to linear, smooths it,
     // applies it, and limits the result. The returned sample never exceeds
     // the limiter threshold in absolute value.
-    float renderMixed(float filterCutoff, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb);
+    // filterReso is the ladder resonance (0..1); it is smoothed per
+    // sample like the cutoff, and is inert in SVF mode (the SVF keeps
+    // Q = 0.7071).
+    float renderMixed(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix, float masterGainDb);
     int getActiveVoiceCount() const;
     bool isNoteActive(int midiNote) const;
 
@@ -53,11 +63,16 @@ private:
     // here (once, globally) rather than per voice, because all voices share
     // the same parameter values.
     SmoothedParameter cutoffSmooth;
+    SmoothedParameter resoSmooth; // ladder resonance (inert in SVF mode)
     SmoothedParameter macroSmooth;
     SmoothedParameter delaySmooth;
     SmoothedParameter reverbSmooth;
     SmoothedParameter distSmooth;
     SmoothedParameter masterSmooth; // linear gain
+
+    // The voice filter type, shared by all voices (SVF LowPass by
+    // default). Stored so prepare() applies it to voices it creates.
+    TherumFilterType currentFilterType = TherumFilterType::LowPass;
 
     Limiter limiter;
 };

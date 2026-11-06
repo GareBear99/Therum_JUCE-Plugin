@@ -50,6 +50,16 @@
 //     filter; see the step-3 report). 4x oversampling (DaisySP's
 //     choice) moves the alpha = 1 threshold above Nyquist and
 //     is the documented alternative, for Gary's call.
+//   - 1x is the voice production mode (Gary's call, 2026-11-05):
+//     the VoiceFilter runs this filter at 1x and clamps the
+//     cutoff to sr/(2*pi) (alpha <= 1), so the production ladder
+//     stays a lowpass and stays stable — at 44.1 kHz it tops out
+//     at ~7.0 kHz. At 1x the filter is unstable at high fc
+//     (alpha = 2*pi*fc/fs exceeds 2 above fc = fs/pi) and
+//     aliases the tanh harmonics — the test measures both, and
+//     the NMR verdict on the wired 1x path is in the voice
+//     filter test (Tests/test_voicefilter.cpp). The standalone
+//     default stays 2x (the published Huovilainen figure).
 //   - It does not have a separate drive parameter. The input stage
 //     IS the drive: the first tanh saturates on the input (minus
 //     feedback). Input amplitude is the drive; a 0.1 sine stays

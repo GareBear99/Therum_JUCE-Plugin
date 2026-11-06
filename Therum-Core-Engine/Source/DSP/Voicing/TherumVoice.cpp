@@ -16,9 +16,7 @@ void TherumVoice::prepare(double sampleRate, const WavetableBank* sharedBank)
     ampEnv.prepare(sampleRate);
     ampEnv.setADSR(10.0f, 120.0f, 0.75f, 220.0f);
     filter.prepare(sampleRate);
-    filter.setType(SvfFilter::Type::LowPass);
-    filter.setQ(0.7071f); // Butterworth: -3 dB at the cutoff, no peak
-    filter.setDrive(0.0f); // no drive in the voice path (yet)
+    filter.setType(TherumFilterType::LowPass); // SVF lowpass: the shipped voice filter
 }
 
 void TherumVoice::start(int note, float vel)
@@ -45,7 +43,7 @@ void TherumVoice::stop()
     ampEnv.noteOff();
 }
 
-float TherumVoice::render(float filterCutoff, float macroAmount, float delayMix, float reverbMix, float distMix)
+float TherumVoice::render(float filterCutoff, float filterReso, float macroAmount, float delayMix, float reverbMix, float distMix)
 {
     if (!active) return 0.0f;
 
@@ -61,6 +59,7 @@ float TherumVoice::render(float filterCutoff, float macroAmount, float delayMix,
 
     const float modulatedCutoff = filterCutoff * (0.5f + macroAmount * 0.5f);
     filter.setCutoff(modulatedCutoff);
+    filter.setResonance(filterReso); // ladder only; the SVF keeps Q = 0.7071
 
     const float raw = (oscA.process() * 0.62f) + (oscB.process() * 0.38f);
     const float filtered = filter.process(raw);
