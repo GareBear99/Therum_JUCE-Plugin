@@ -61,6 +61,26 @@
 //          python3 ~/workspace/ARC-AudioBench/scripts/nmr_test.py \
 //              --f0 5000 voicefilter_sine_ladder_1x.wav
 //
+//   (E9) UI selector path (FilterTypeChoice): the labels are the
+//        five choice strings in order ("Low Pass", "High Pass",
+//        "Band Pass", "Notch", "Ladder"), every index maps to
+//        the right engine, out-of-range indices fall back to Low
+//        Pass, and the map inverts exactly — a saved index
+//        restores the same type. A type change driven by the
+//        mapped index, the exact path the processor runs when the
+//        user picks a type in the FilterPanel, crossfades over
+//        128 samples (first switched sample within 0.02 of the
+//        SVF continuation; largest step inside the window at most
+//        2x the steady-state max step, the E4 criterion), stays
+//        finite and bounded, engages the ladder (post-fade RMS
+//        > 10% away from the SVF RMS, the (g) criterion), and
+//        lands on the same steady ladder output as a fresh
+//        Ladder note (last-0.5 s RMS within 10% — the 0.5 s
+//        window averages out the detuned oscillators' beat, which
+//        put 0.25 s windows 9% apart for the same engine). The
+//        host-side save/restore round-trip of the parameter value
+//        itself is verified on the Mac build check, not here: the
+//        headless rig cannot instantiate the processor.
 // Build and run: `make voicefilter` (see Makefile), or:
 //   g++ -std=c++17 -O2 -Wall -Wextra -o test_voicefilter \
 //       test_voicefilter.cpp \
@@ -83,8 +103,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
+#include "../Source/DSP/Filters/FilterTypeChoice.h"
 #include "../Source/DSP/Filters/MoogLadderFilter.h"
 #include "../Source/DSP/Filters/SvfFilter.h"
 #include "../Source/DSP/Filters/VoiceFilter.h"
@@ -784,6 +806,156 @@ int main()
         std::printf("        --f0 %.3f voicefilter_direct_ladder_2x.wav\n", f0);
         std::printf("    python3 ~/workspace/ARC-AudioBench/scripts/nmr_test.py \\\n");
         std::printf("        --f0 %.3f voicefilter_voice_ladder_1x.wav\n", f0);
+    }
+
+    // --- (i) UI selector path (FilterTypeChoice). ---
+    // The FilterPanel type selector writes a choice index; the
+    // processor maps it once per block with typeFromIndex() and
+    // the manager crossfades. This section proves the shared
+    // mapping the panel, the parameter and the processor all
+    // read — and that a type change driven by the mapped index,
+    // the exact path the processor runs when the user picks a
+    // type in the UI, crossfades and lands on the ladder.
+    std::printf("\n-- (i) UI selector path (FilterTypeChoice) --\n");
+    {
+        // (i1) The labels are the five choice strings, in order.
+        CHECK(TherumFilterChoice::count == 5);
+        CHECK(TherumFilterChoice::defaultIndex == 0);
+        const char* expectedLabels[5] =
+            { "Low Pass", "High Pass", "Band Pass", "Notch", "Ladder" };
+        for (int i = 0; i < 5; ++i)
+            CHECK(std::strcmp(TherumFilterChoice::labels[(size_t)i], expectedLabels[i]) == 0);
+        std::printf("  labels: \"%s\", \"%s\", \"%s\", \"%s\", \"%s\" (default index %d)\n",
+                    TherumFilterChoice::labels[0], TherumFilterChoice::labels[1],
+                    TherumFilterChoice::labels[2], TherumFilterChoice::labels[3],
+                    TherumFilterChoice::labels[4], TherumFilterChoice::defaultIndex);
+
+        // (i2) Every index maps to the right engine; out-of-range
+        // indices fall back to the shipped Low Pass.
+        CHECK(TherumFilterChoice::typeFromIndex(0) == TherumFilterType::LowPass);
+        CHECK(TherumFilterChoice::typeFromIndex(1) == TherumFilterType::HighPass);
+        CHECK(TherumFilterChoice::typeFromIndex(2) == TherumFilterType::BandPass);
+        CHECK(TherumFilterChoice::typeFromIndex(3) == TherumFilterType::Notch);
+        CHECK(TherumFilterChoice::typeFromIndex(4) == TherumFilterType::Ladder);
+        CHECK(TherumFilterChoice::typeFromIndex(-1) == TherumFilterType::LowPass);
+        CHECK(TherumFilterChoice::typeFromIndex(5) == TherumFilterType::LowPass);
+        CHECK(TherumFilterChoice::typeFromIndex(99) == TherumFilterType::LowPass);
+
+        // (i3) The map inverts exactly: a saved index restores
+        // the same type. Comb / Formant have no index.
+        for (int i = 0; i < 5; ++i)
+            CHECK(TherumFilterChoice::indexFromType(TherumFilterChoice::typeFromIndex(i)) == i);
+        CHECK(TherumFilterChoice::indexFromType(TherumFilterType::Comb) == -1);
+        CHECK(TherumFilterChoice::indexFromType(TherumFilterType::Formant) == -1);
+        std::printf("  mapping + round-trip: 5 indices, 3 out-of-range fallbacks, exact inverse\n");
+    }
+    {
+        // (i4) The processor's per-block path, simulated: a note
+        // renders at index 0, then setFilterType(
+        // typeFromIndex(4) ) mid-note — the user picking "Ladder"
+        // in the FilterPanel. The switch must crossfade (first
+        // switched sample within 0.02 of the SVF continuation;
+        // largest step inside the 128-sample window at most 2x
+        // the steady-state max step, the E4 criterion), stay
+        // finite and bounded, engage the ladder (post-fade RMS
+        // > 10% away from the SVF RMS, the (g) criterion), and
+        // land on the same steady ladder output as a fresh
+        // Ladder note (last-0.25 s RMS within 10%).
+        const int halfSec = (int)(kSr * 0.5);
+        const int quarterSec = (int)(kSr * 0.25);
+        const int fullSec = (int)kSr;
+        auto renderNote = [&](VoiceManager& vm, float cutoff, float reso, int samples)
+        {
+            std::vector<float> out((size_t)samples);
+            for (int i = 0; i < samples; ++i)
+                out[(size_t)i] = vm.renderMixed(cutoff, reso, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            return out;
+        };
+        auto rmsOf = [&](const std::vector<float>& v, int from)
+        {
+            double sumSq = 0.0;
+            for (int i = from; i < (int)v.size(); ++i)
+                sumSq += (double)v[(size_t)i] * v[(size_t)i];
+            return std::sqrt(sumSq / (double)(v.size() - (size_t)from));
+        };
+        auto maxStepOf = [&](const std::vector<float>& v, int from)
+        {
+            double m = 0.0;
+            for (int i = from + 1; i < (int)v.size(); ++i)
+                m = std::max(m, (double)std::fabs(v[(size_t)i] - v[(size_t)i - 1]));
+            return m;
+        };
+
+        // Control: stays on index 0 the whole time, so its first
+        // 128 samples after 0.5 s are the pure SVF continuation.
+        VoiceManager vmControl;
+        vmControl.prepare(kSr, 4);
+        vmControl.setFilterType(TherumFilterChoice::typeFromIndex(0));
+        vmControl.noteOn(69, 0.8f);
+        (void)renderNote(vmControl, 1000.0f, 0.5f, halfSec);
+        const std::vector<float> controlTail =
+            renderNote(vmControl, 1000.0f, 0.5f, VoiceFilter::kCrossfadeSamples);
+
+        // Switched: index 0 for 0.5 s, then index 4 mid-note.
+        VoiceManager vmSwitch;
+        vmSwitch.prepare(kSr, 4);
+        vmSwitch.setFilterType(TherumFilterChoice::typeFromIndex(0));
+        vmSwitch.noteOn(69, 0.8f);
+        const std::vector<float> svfHalf = renderNote(vmSwitch, 1000.0f, 0.5f, halfSec);
+        const double rmsSvf = rmsOf(svfHalf, halfSec - quarterSec);
+        const double steadyStep = maxStepOf(svfHalf, halfSec - quarterSec);
+        vmSwitch.setFilterType(TherumFilterChoice::typeFromIndex(4));
+        const std::vector<float> xfade =
+            renderNote(vmSwitch, 1000.0f, 0.5f, VoiceFilter::kCrossfadeSamples);
+        // A 1 s tail, RMS over the last 0.5 s: the two oscillators
+        // are detuned, so a short window samples the beat phase —
+        // 0.25 s windows measured 9% apart for the same engine.
+        // A 0.5 s window (220 cycles at 440 Hz) averages the beat
+        // out; the bound below is the same-engine check, not a
+        // precision match.
+        const std::vector<float> ladTail = renderNote(vmSwitch, 1000.0f, 0.5f, fullSec);
+        const double rmsLad = rmsOf(ladTail, fullSec - halfSec);
+
+        bool finiteX = true;
+        double maxX = 0.0, maxStepX = 0.0;
+        float prev = svfHalf.back();
+        for (const float s : xfade)
+        {
+            if (!std::isfinite(s)) finiteX = false;
+            maxX = std::max(maxX, (double)std::fabs(s));
+            maxStepX = std::max(maxStepX, (double)std::fabs(s - prev));
+            prev = s;
+        }
+        bool finiteLad = true;
+        double maxLad = 0.0;
+        for (const float s : ladTail)
+        {
+            if (!std::isfinite(s)) finiteLad = false;
+            maxLad = std::max(maxLad, (double)std::fabs(s));
+        }
+        const double firstStep = std::fabs((double)xfade[0] - (double)controlTail[0]);
+
+        // Fresh Ladder note: the type set before noteOn.
+        VoiceManager vmFresh;
+        vmFresh.prepare(kSr, 4);
+        vmFresh.setFilterType(TherumFilterChoice::typeFromIndex(4));
+        vmFresh.noteOn(69, 0.8f);
+        const std::vector<float> freshTail = renderNote(vmFresh, 1000.0f, 0.5f, fullSec);
+        const double rmsFresh = rmsOf(freshTail, fullSec - halfSec);
+
+        std::printf("  SVF RMS %.4f, steady max step %.5f\n", rmsSvf, steadyStep);
+        std::printf("  switch: first-sample |diff| vs SVF continuation %.5f, "
+                    "max step in window %.5f, max|out| %.4f, finite = %s\n",
+                    firstStep, maxStepX, maxX, finiteX ? "yes" : "NO");
+        std::printf("  Ladder post-fade RMS %.4f, max|out| %.4f, finite = %s; "
+                    "fresh Ladder RMS %.4f\n",
+                    rmsLad, maxLad, finiteLad ? "yes" : "NO", rmsFresh);
+        CHECK(finiteX && finiteLad);
+        CHECK(firstStep < 0.02); // the fade starts from the SVF output
+        CHECK(maxStepX <= 2.0 * steadyStep); // E4 criterion, manager level
+        CHECK(maxX < 1.0 && maxLad < 1.0); // bounded (limiter at 0.99)
+        CHECK(std::fabs(rmsLad - rmsSvf) / rmsSvf > 0.10); // ladder engages
+        CHECK(std::fabs(rmsLad - rmsFresh) / rmsFresh < 0.10); // same steady ladder
     }
 
     std::printf("\n=====================================================================\n");

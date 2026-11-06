@@ -1,22 +1,7 @@
 #include "TherumPluginProcessor.h"
 #include "TherumPluginEditor.h"
 #include "ParameterIDs.h"
-
-// Maps the filter1_type choice index (0 Low Pass, 1 High Pass,
-// 2 Band Pass, 3 Notch, 4 Ladder) to the voice filter type. Any
-// out-of-range index falls back to the shipped Low Pass.
-static TherumFilterType filterTypeFromIndex(int index)
-{
-    switch (index)
-    {
-        case 1: return TherumFilterType::HighPass;
-        case 2: return TherumFilterType::BandPass;
-        case 3: return TherumFilterType::Notch;
-        case 4: return TherumFilterType::Ladder;
-        case 0:
-        default: return TherumFilterType::LowPass;
-    }
-}
+#include "../DSP/Filters/FilterTypeChoice.h"
 
 TherumPluginProcessor::TherumPluginProcessor()
 : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
@@ -67,7 +52,7 @@ void TherumPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     // (the manager change-detects, and each voice crossfades, so a
     // change never clicks). The resonance is smoothed per sample
     // inside the manager, like the cutoff.
-    voiceManager.setFilterType(filterTypeFromIndex(filterTypeIndex));
+    voiceManager.setFilterType(TherumFilterChoice::typeFromIndex(filterTypeIndex));
 
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
@@ -120,8 +105,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout TherumPluginProcessor::creat
     // The voice filter type. Index 0 (Low Pass) is the shipped voice
     // filter; Ladder selects the Moog ladder (1x in production).
     // The resonance parameter drives the ladder only — in SVF mode
-    // it is inert (the SVF keeps Q = 0.7071).
-    p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::filter1_type, "Filter 1 Type", juce::StringArray{"Low Pass", "High Pass", "Band Pass", "Notch", "Ladder"}, 0));
+    // it is inert (the SVF keeps Q = 0.7071). The labels come from
+    // TherumFilterChoice, the same list the FilterPanel selector
+    // shows, so the parameter and the panel can never drift apart.
+    juce::StringArray filterTypeChoices;
+    for (const char* label : TherumFilterChoice::labels)
+        filterTypeChoices.add(label);
+    p.push_back(std::make_unique<juce::AudioParameterChoice>(TherumParams::filter1_type, "Filter 1 Type", filterTypeChoices, TherumFilterChoice::defaultIndex));
 
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::env1_attack, "Env 1 Attack", 1.0f, 5000.0f, 10.0f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::env1_decay, "Env 1 Decay", 1.0f, 5000.0f, 120.0f));

@@ -87,7 +87,9 @@ test: check test_core test_voicefilter
 # The voice filter test (paper section 4.5, ladder wired into the
 # voice at 1x): ladder equivalence, SVF unchanged, the 1x cutoff
 # clamp, click-free type switching, denormals, the 1x stability
-# sweep, the voice render, and the NMR renders for the Bench.
+# sweep, the voice render, the NMR renders for the Bench, and the
+# UI selector path (FilterTypeChoice mapping + the processor's
+# per-block drive of the crossfade).
 voicefilter: test_voicefilter
 	./test_voicefilter
 

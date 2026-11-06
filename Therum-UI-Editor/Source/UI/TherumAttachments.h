@@ -12,6 +12,7 @@ class TherumAttachments
 {
 public:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     explicit TherumAttachments(TherumPluginProcessor& p) : processor(p) {}
 
@@ -24,6 +25,7 @@ private:
     std::unique_ptr<SliderAttachment> oscAWtPosAttachment;
     std::unique_ptr<SliderAttachment> filterCutoffAttachment;
     std::unique_ptr<SliderAttachment> filterResoAttachment;
+    std::unique_ptr<ComboBoxAttachment> filterTypeAttachment;
     std::unique_ptr<SliderAttachment> macro1Attachment;
     std::unique_ptr<SliderAttachment> macro2Attachment;
     std::unique_ptr<SliderAttachment> delayMixAttachment;
