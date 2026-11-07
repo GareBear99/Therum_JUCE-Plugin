@@ -176,12 +176,14 @@ Target hosts:
 
 **Therum JUCE is the FREE version** (Gary's model, 2026-11-07). **Therum iPlug2 is the FULL / PRO version**, built in parallel, mirroring the free version's progress plus its pro features.
 
-Current state (2026-11-07, local HEAD `1b7b3da` / `origin/main` `a7059b8`):
+Current state (2026-11-07, local HEAD `41779a9` / `origin/main` `a7059b8`, this doc update on top, unpushed):
 
 • **Builds — first time ever as a plugin:** VST3 + AU, Release, exit 0 (2026-11-07, commit `a7059b8`).
-• **Loads in Ableton Live 12 Lite** (AU picked; VST3 editor not yet tested). CPU 1% → 2–3%.
+• **Loads in Ableton Live 12 Lite** (AU + VST3 both load; VST3 exposes all 27 parameters). CPU 1% → 2–3%.
 • **Sounds — proven:** Gary's saved test (16.86 s, peak −18 dBFS, C4/D4/E4/F4/G4, no stuck notes).
-• **Editor BROKEN — the blocker:** opens at 52×20 px instead of the 1460×900 the code specifies; closing it crashes Live (segfault in `TherumAttachments` / `SliderParameterAttachment`). Destructor fix committed locally (`c0d91ea`), rebuilt + installed on the Mac 2026-11-07 (configure exit 0, build exit 0; new VST3 8,981,648 B + AU 8,673,856 B) — not yet verified in Live, not pushed. 52×20 root cause still open; the JUCE 8.0.5 AU wrapper sizing path was checked against source and eliminated as a lead (it sizes the Cocoa view from the editor's 1460×900 bounds).
+• **Validation PASSED 2026-11-07:** auval SUCCEEDED (exit 0; cold open 74.843 ms; Cocoa view available; all 27 parameters PASS; render PASS 22050–192000 Hz; MIDI PASS; one non-failure warning: multi-channel output without a channel layout). pluginval v1.0.4 strictness 10 SUCCEEDED (exit 0; all tests passed, including editor open/close while processing).
+• **Editor window still missing — the blocker:** no editor window materializes in Live at all (AU or VST3) even with the editor toggle checked — Live reports it open but System Events lists only Live's "Untitled" window. CORRECTION 2026-11-07: the earlier "52×20 window titled 'Window'" was a computer-control infrastructure artifact, not the Therum editor. The JUCE 8.0.5 AU wrapper sizing path was checked against source and eliminated as a lead (it sizes the Cocoa view from the editor's 1460×900 bounds). Root cause still open and format-independent.
+• **Destructor segfault FIXED as far as Live allows:** fix committed locally (`c0d91ea`), rebuilt + installed on the Mac 2026-11-07 (configure exit 0, build exit 0; new VST3 8,981,648 B + AU 8,673,856 B) — not pushed. Closing the editor in Live now survives for the AU (track 1 toggle OFF, Live alive, no new crash report) and the VST3 (toggle OFF then ON, Live alive, no new crash report); pluginval's in-process editor open/close also passes. Caveat: since no editor window ever appears, it is not 100% certain the editor object is created/destroyed in Live — pluginval is the stronger evidence. Editor-based verification (Morph/ADSR, filters, top-right tables, drop test) still blocked until a window appears.
 • **Test suite: 97,380 checks, 0 failures** (re-verified 2026-11-07).
 
 Included in the current release:
@@ -189,7 +191,7 @@ Included in the current release:
 • wavetable engine (256 frames × 2048 samples, Serum-format import, mipmaps, Hermite interpolation, crossfade + spectral morph)
 • SVF + Moog ladder filters (5 types, selectable in UI)
 • Morph + ADSR wired end-to-end
-• UI architecture (1460×900 editor — currently broken in the host, see above)
+• UI architecture (1460×900 editor — currently no window appears in the host, see above)
 • preset system scaffolds
 • mascot system scaffolds
 • documentation and planning materials (PAPER.md is the DSP specification — kept up to date with the code)
