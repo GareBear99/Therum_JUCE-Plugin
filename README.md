@@ -156,35 +156,61 @@ Future versions will include an integrated wavetable editor supporting:
 
 # Plugin Formats
 
-Therum is intended to support:
+Therum builds as:
 
-• VST3  
-• AU  
-• Standalone (optional)
+• **VST3** — built (first compiled 2026-11-07)  
+• **AU** — built (first compiled 2026-11-07), loads in Ableton Live 12 Lite  
+• Standalone (optional — not built)
 
 Target hosts:
 
-• Ableton Live  
+• Ableton Live (verified: Live 12 Lite, loads + sounds)  
 • FL Studio  
 • Logic Pro  
 • Cubase  
-• Reaper
+• Reaper (cross-check only after Ableton confirms)
 
 ---
 
 # Project Status
 
-Therum currently exists as an **advanced scaffold and architectural package**.
+**Therum JUCE is the FREE version** (Gary's model, 2026-11-07). **Therum iPlug2 is the FULL / PRO version**, built in parallel, mirroring the free version's progress plus its pro features.
+
+Current state (2026-11-07, local HEAD `c0d91ea` / `origin/main` `a7059b8`):
+
+• **Builds — first time ever as a plugin:** VST3 + AU, Release, exit 0 (2026-11-07, commit `a7059b8`).
+• **Loads in Ableton Live 12 Lite** (AU picked; VST3 editor not yet tested). CPU 1% → 2–3%.
+• **Sounds — proven:** Gary's saved test (16.86 s, peak −18 dBFS, C4/D4/E4/F4/G4, no stuck notes).
+• **Editor BROKEN — the blocker:** opens at 52×20 px instead of the 1460×900 the code specifies; closing it crashes Live (segfault in `TherumAttachments` / `SliderParameterAttachment`). Destructor fix committed locally (`c0d91ea`), not yet verified in Live, not pushed.
+• **Test suite: 97,380 checks, 0 failures** (re-verified 2026-11-07).
 
 Included in the current release:
 
-• synthesis engine scaffolds
-• UI architecture scaffolds
+• wavetable engine (256 frames × 2048 samples, Serum-format import, mipmaps, Hermite interpolation, crossfade + spectral morph)
+• SVF + Moog ladder filters (5 types, selectable in UI)
+• Morph + ADSR wired end-to-end
+• UI architecture (1460×900 editor — currently broken in the host, see above)
 • preset system scaffolds
 • mascot system scaffolds
-• documentation and planning materials
+• documentation and planning materials (PAPER.md is the DSP specification — kept up to date with the code)
 
-The package serves as the **canonical continuation baseline** for development.
+# Free / Full
+
+Therum ships as two versions from one framework-free DSP core (Gary's model, 2026-11-07):
+
+**FREE — Therum JUCE (this repo):**
+• 2 wavetable oscs, crossfade morph, WT import
+• SVF LP/HP/BP/Notch
+• 1 ADSR, macro, 16 voices
+
+**FULL / PRO — Therum iPlug2 (built in parallel, mirroring the free version):**
+• Spectral morph (ZeroFundamental/ZeroAll), Moog ladder filter
+• Unison (1–16 voices/osc), sub osc, warp modes
+• Full mod matrix, MSEG, LFOs beyond 1–2, MPE
+• Sample / granular / spectral engines
+• Real FX (FDN/Dattorro reverb, delay, chorus, distortion w/ ADAA)
+• Wavetable editor / drawing / harmonic edit
+• Full preset library (100+), browser, preset packs
 
 ---
 
@@ -231,6 +257,8 @@ Each plugin has a specific role while Therum acts as the **flagship synthesis en
 
 Open source scaffold with optional commercial distribution.
 
+**No LICENSE file in the repo yet — the licence is undecided.** (Noted 2026-11-07.)
+
 Future builds may introduce:
 
 • official releases
@@ -241,16 +269,24 @@ Future builds may introduce:
 
 # Development
 
-This project is currently in **architecture and scaffold stage**.
+This project is currently in **workshop stage — the JUCE free version builds, loads and sounds; the editor is the blocker**.
+
+Current work (2026-11-07):
+
+1. **Fix the editor lifecycle (the blocker)** — 52×20 window + destructor segfault; rebuild + relaunch + re-test in Live
+2. Re-test in Live: editor open/render, top-right tables, dropping a sound onto them, Morph/ADSR and filter switching, VST3 editor
+3. pluginval strictness 10 + auval
 
 Next development milestones:
 
-1. Complete wavetable engine
-2. Implement full modulation matrix
-3. Implement granular and spectral engines
-4. Build wavetable editor
-5. Complete preset browser UX
-6. Host testing and optimization
+1. Implement full modulation matrix (the evaluator is never called today)
+2. Unison (1–16 voices/osc) + sub osc
+3. Warp modes
+4. Real FX rack (FDN/Dattorro reverb, delay, chorus, distortion w/ ADAA)
+5. Implement granular and spectral engines
+6. Build wavetable editor
+7. Complete preset browser UX + full preset library (100+)
+8. Host testing and optimization
 
 ---
 
