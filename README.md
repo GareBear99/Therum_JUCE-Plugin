@@ -176,12 +176,12 @@ Target hosts:
 
 **Therum JUCE is the FREE version** (Gary's model, 2026-11-07). **Therum iPlug2 is the FULL / PRO version**, built in parallel, mirroring the free version's progress plus its pro features.
 
-Current state (2026-11-07, local HEAD `c0d91ea` / `origin/main` `a7059b8`):
+Current state (2026-11-07, local HEAD `1b7b3da` / `origin/main` `a7059b8`):
 
 • **Builds — first time ever as a plugin:** VST3 + AU, Release, exit 0 (2026-11-07, commit `a7059b8`).
 • **Loads in Ableton Live 12 Lite** (AU picked; VST3 editor not yet tested). CPU 1% → 2–3%.
 • **Sounds — proven:** Gary's saved test (16.86 s, peak −18 dBFS, C4/D4/E4/F4/G4, no stuck notes).
-• **Editor BROKEN — the blocker:** opens at 52×20 px instead of the 1460×900 the code specifies; closing it crashes Live (segfault in `TherumAttachments` / `SliderParameterAttachment`). Destructor fix committed locally (`c0d91ea`), not yet verified in Live, not pushed.
+• **Editor BROKEN — the blocker:** opens at 52×20 px instead of the 1460×900 the code specifies; closing it crashes Live (segfault in `TherumAttachments` / `SliderParameterAttachment`). Destructor fix committed locally (`c0d91ea`), rebuilt + installed on the Mac 2026-11-07 (configure exit 0, build exit 0; new VST3 8,981,648 B + AU 8,673,856 B) — not yet verified in Live, not pushed. 52×20 root cause still open; the JUCE 8.0.5 AU wrapper sizing path was checked against source and eliminated as a lead (it sizes the Cocoa view from the editor's 1460×900 bounds).
 • **Test suite: 97,380 checks, 0 failures** (re-verified 2026-11-07).
 
 Included in the current release:
@@ -273,7 +273,7 @@ This project is currently in **workshop stage — the JUCE free version builds, 
 
 Current work (2026-11-07):
 
-1. **Fix the editor lifecycle (the blocker)** — 52×20 window + destructor segfault; rebuild + relaunch + re-test in Live
+1. **Fix the editor lifecycle (the blocker)** — 52×20 window + destructor segfault; destructor fix built + installed on the Mac 2026-11-07, Live restart + re-test pending
 2. Re-test in Live: editor open/render, top-right tables, dropping a sound onto them, Morph/ADSR and filter switching, VST3 editor
 3. pluginval strictness 10 + auval
 
