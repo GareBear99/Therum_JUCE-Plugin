@@ -176,3 +176,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout TherumPluginProcessor::creat
     p.push_back(std::make_unique<juce::AudioParameterFloat>(TherumParams::fx_distMix, "Dist Mix", 0.0f, 1.0f, 0.10f));
     return { p.begin(), p.end() };
 }
+
+// JUCE plugin entry point (required by the VST3/AU wrappers).
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new TherumPluginProcessor();
+}

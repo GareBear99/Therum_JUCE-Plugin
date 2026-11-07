@@ -1,17 +1,17 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TherumPluginProcessor.h"
-#include "../UI/TherumEditorState.h"
-#include "../UI/TherumAttachments.h"
-#include "../UI/Panels/TopBarPanel.h"
-#include "../UI/Panels/OscPanel.h"
-#include "../UI/Panels/FilterPanel.h"
-#include "../UI/Panels/BrowserPanel.h"
-#include "../UI/Panels/ModPanel.h"
-#include "../UI/Panels/MatrixPanel.h"
-#include "../UI/Panels/FxPanel.h"
-#include "../UI/Panels/DiagnosticsPanel.h"
-#include "../UI/Panels/MascotPanel.h"
+#include "UI/TherumEditorState.h"
+#include "UI/TherumAttachments.h"
+#include "UI/Panels/TopBarPanel.h"
+#include "UI/Panels/OscPanel.h"
+#include "UI/Panels/FilterPanel.h"
+#include "UI/Panels/BrowserPanel.h"
+#include "UI/Panels/ModPanel.h"
+#include "UI/Panels/MatrixPanel.h"
+#include "UI/Panels/FxPanel.h"
+#include "UI/Panels/DiagnosticsPanel.h"
+#include "UI/Panels/MascotPanel.h"
 
 class TherumPluginEditor : public juce::AudioProcessorEditor,
                            private juce::Timer

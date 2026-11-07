@@ -1,5 +1,5 @@
 #include "FilterPanel.h"
-#include "../../DSP/Filters/FilterTypeChoice.h"
+#include "DSP/Filters/FilterTypeChoice.h"
 
 FilterPanel::FilterPanel()
 {

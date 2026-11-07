@@ -1,5 +1,5 @@
 #include "OscPanel.h"
-#include "../../DSP/Oscillators/MorphChoice.h"
+#include "DSP/Oscillators/MorphChoice.h"
 
 OscPanel::OscPanel()
 {

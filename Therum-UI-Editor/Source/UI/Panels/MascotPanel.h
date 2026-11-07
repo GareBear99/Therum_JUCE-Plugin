@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "../../Mascot/MascotRuntime.h"
+#include "Mascot/MascotRuntime.h"
 
 class MascotPanel : public juce::Component
 {

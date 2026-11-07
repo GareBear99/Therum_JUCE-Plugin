@@ -1,6 +1,6 @@
 #include "TherumAttachments.h"
-#include "../Core/TherumPluginProcessor.h"
-#include "../Core/ParameterIDs.h"
+#include "Core/TherumPluginProcessor.h"
+#include "Core/ParameterIDs.h"
 #include "Panels/TopBarPanel.h"
 #include "Panels/OscPanel.h"
 #include "Panels/FilterPanel.h"
