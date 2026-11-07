@@ -18,6 +18,12 @@ public:
 
     void wire(TopBarPanel& topBar, OscPanel& oscPanel, FilterPanel& filterPanel, ModPanel& modPanel, FxPanel& fxPanel);
 
+    // Releases every attachment while the sliders they reference are
+    // still alive. Call from the editor destructor, before any panel
+    // is destroyed (see the declaration-order note in
+    // TherumPluginEditor.h).
+    void clear();
+
 private:
     TherumPluginProcessor& processor;
 

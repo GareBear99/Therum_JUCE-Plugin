@@ -20,6 +20,18 @@ TherumPluginEditor::TherumPluginEditor(TherumPluginProcessor& p)
     startTimerHz(60);
 }
 
+TherumPluginEditor::~TherumPluginEditor()
+{
+    // Stop the splash timer first: timerCallback touches the panels.
+    stopTimer();
+
+    // Release the attachments while every slider they reference is
+    // still alive. The declaration order in the header already destroys
+    // the attachments first; this explicit release is belt-and-braces
+    // so the order can never silently regress again.
+    attachments.clear();
+}
+
 void TherumPluginEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour::fromRGB(5, 8, 22));

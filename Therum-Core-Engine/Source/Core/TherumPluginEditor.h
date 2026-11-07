@@ -18,7 +18,7 @@ class TherumPluginEditor : public juce::AudioProcessorEditor,
 {
 public:
     explicit TherumPluginEditor(TherumPluginProcessor&);
-    ~TherumPluginEditor() override = default;
+    ~TherumPluginEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -29,7 +29,6 @@ private:
     void skipSplash();
 
     TherumPluginProcessor& processor;
-    TherumAttachments attachments;
 
     TopBarPanel topBar;
     OscPanel oscPanel;
@@ -40,6 +39,15 @@ private:
     FxPanel fxPanel;
     DiagnosticsPanel diagnosticsPanel;
     MascotPanel mascotPanel;
+
+    // The attachments MUST be declared after every panel they wire to,
+    // and are also released explicitly in ~TherumPluginEditor.
+    // Members are destroyed in reverse declaration order, so an
+    // attachment destroyed after its slider would dereference the freed
+    // slider in ~SliderParameterAttachment (EXC_BAD_ACCESS at null+0x48
+    // on editor close, Live-2026-11-07-014655). Declared last, the
+    // attachments die first, while every slider is still alive.
+    TherumAttachments attachments;
 
     TherumEditorState layoutState;
 

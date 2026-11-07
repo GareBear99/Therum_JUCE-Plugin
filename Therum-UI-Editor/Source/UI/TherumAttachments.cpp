@@ -28,3 +28,25 @@ void TherumAttachments::wire(TopBarPanel& topBar, OscPanel& oscPanel, FilterPane
     reverbMixAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::fx_reverbMix, fxPanel.getReverbMixSlider());
     distMixAttachment = std::make_unique<SliderAttachment>(apvts, TherumParams::fx_distMix, fxPanel.getDistMixSlider());
 }
+
+void TherumAttachments::clear()
+{
+    // Destroy in reverse wire order; each reset detaches from its
+    // slider, so every slider must still be alive here.
+    distMixAttachment.reset();
+    reverbMixAttachment.reset();
+    delayMixAttachment.reset();
+    releaseAttachment.reset();
+    sustainAttachment.reset();
+    decayAttachment.reset();
+    attackAttachment.reset();
+    macro2Attachment.reset();
+    macro1Attachment.reset();
+    filterTypeAttachment.reset();
+    filterResoAttachment.reset();
+    filterCutoffAttachment.reset();
+    oscAMorphPhaseAttachment.reset();
+    oscAMorphModeAttachment.reset();
+    oscAWtPosAttachment.reset();
+    masterGainAttachment.reset();
+}
